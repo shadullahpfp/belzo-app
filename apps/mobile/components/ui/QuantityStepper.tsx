@@ -51,13 +51,13 @@ export const QuantityStepper: React.FC<QuantityStepperProps> = ({
       Animated.timing(scaleAnim, {
         toValue: 0.94,
         duration: 70,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
         damping: 12,
         stiffness: 220,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
     ]).start();
   };
@@ -95,60 +95,56 @@ export const QuantityStepper: React.FC<QuantityStepperProps> = ({
   // State 1: App Store "GET" style idle button
   if (!inCart) {
     return (
-      <Animated.View
-        style={{
-          width: widthAnim,
-          transform: [{ scale: scaleAnim }],
-        }}
-      >
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={handleIncrement}
-          disabled={disabled}
-          style={styles.getButton}
-        >
-          <Text style={styles.getButtonText}>ADD</Text>
-        </TouchableOpacity>
+      <Animated.View style={{ width: widthAnim }}>
+        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={handleIncrement}
+            disabled={disabled}
+            style={styles.getButton}
+          >
+            <Text style={styles.getButtonText}>ADD</Text>
+          </TouchableOpacity>
+        </Animated.View>
       </Animated.View>
     );
   }
 
   // State 2: Active Stepper Capsule
   return (
-    <Animated.View
-      style={[
-        styles.activeContainer,
-        {
-          width: widthAnim,
-          transform: [{ scale: scaleAnim }],
-        },
-      ]}
-    >
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={handleDecrement}
-        disabled={disabled}
-        hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-        style={styles.stepAction}
+    <Animated.View style={{ width: widthAnim }}>
+      <Animated.View
+        style={[
+          styles.activeContainer,
+          { transform: [{ scale: scaleAnim }] },
+        ]}
       >
-        <Text style={styles.stepActionText}>—</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={handleDecrement}
+          disabled={disabled}
+          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+          style={styles.stepAction}
+        >
+          <Text style={styles.stepActionText}>—</Text>
+        </TouchableOpacity>
 
-      <View style={styles.quantityWrapper}>
-        <Text style={styles.quantityText}>{quantity}</Text>
-      </View>
+        <View style={styles.quantityWrapper}>
+          <Text style={styles.quantityText}>{quantity}</Text>
+        </View>
 
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={handleIncrement}
-        disabled={isMaxStock || disabled}
-        hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-        style={[styles.stepAction, isMaxStock && styles.disabledPlus]}
-      >
-        <Text style={[styles.stepActionText, isMaxStock && styles.disabledPlusText]}>
-          +
-        </Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={handleIncrement}
+          disabled={isMaxStock || disabled}
+          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+          style={[styles.stepAction, isMaxStock && styles.disabledPlus]}
+        >
+          <Text style={[styles.stepActionText, isMaxStock && styles.disabledPlusText]}>
+            +
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
     </Animated.View>
   );
 };
