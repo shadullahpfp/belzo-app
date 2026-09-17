@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "Belzo",
+    "slug": "belzo-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "belzo",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#2A134D"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.belzo.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Belzo uses your location to deliver orders right to your doorstep.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Belzo requires background location to track active delivery routes.",
+        "NSCameraUsageDescription": "Belzo uses your camera to scan dark store package barcodes and capture contactless delivery confirmation.",
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.belzo.app",
+      "softwareKeyboardLayoutMode": "pan",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2A134D"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "CAMERA",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Belzo requires background location to track active delivery routes.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-image"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
