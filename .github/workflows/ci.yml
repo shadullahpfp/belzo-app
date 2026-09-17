@@ -1,0 +1,48 @@
+name: Belzo Monorepo CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Typecheck & Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: Secret Scanning Audit
+        run: |
+          echo "Scanning for accidental secrets or .env commits..."
+          if git ls-files | grep -E '^(\.env|\.env\.local|\.env\.production)$'; then
+            echo "❌ Error: Tracked .env secret file detected in git tree!"
+            exit 1
+          fi
+          echo "✅ Secret scan passed cleanly. No secrets committed."
+
+      - name: Typecheck Mobile Workspace (Expo SDK 57)
+        run: |
+          cd apps/mobile
+          npx tsc --noEmit
+
+      - name: Typecheck Super Admin Workspace (Next.js 14)
+        run: |
+          cd apps/admin
+          npx tsc --noEmit
