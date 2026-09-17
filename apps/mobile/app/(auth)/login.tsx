@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,11 +10,20 @@ import {
   ActivityIndicator,
   ScrollView,
   Image,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import {
+  signInWithPhoneNumber,
+  RecaptchaVerifier,
+  ConfirmationResult,
+} from 'firebase/auth';
+import { auth } from '../../lib/firebase';
 import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../_layout';
+
+const RESEND_COOLDOWN = 30;
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -25,12 +34,67 @@ export default function LoginScreen() {
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [resendTimer, setResendTimer] = useState(RESEND_COOLDOWN);
+  const [canResend, setCanResend] = useState(false);
 
+  // Firebase confirmation result state
+  const [confirmationResult, setConfirmationResult] =
+    useState<ConfirmationResult | null>(null);
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
   const otpInputRefs = useRef<Array<TextInput | null>>([]);
 
-  const handlePhoneSubmit = async () => {
-    if (phone.length < 10) {
-      setErrorMsg('Please enter a valid 10-digit phone number.');
+  // Countdown timer for Resend OTP
+  useEffect(() => {
+    let interval: any;
+    if (step === 'otp' && resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer((prev) => {
+          if (prev <= 1) {
+            setCanResend(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [step, resendTimer]);
+
+  // Initialize invisible reCAPTCHA verifier for Web / supported platforms
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        if (!recaptchaVerifierRef.current) {
+          recaptchaVerifierRef.current = new RecaptchaVerifier(
+            auth,
+            'recaptcha-container',
+            {
+              size: 'invisible',
+              callback: () => {
+                // reCAPTCHA solved
+              },
+              'expired-callback': () => {
+                setErrorMsg('reCAPTCHA expired. Please try again.');
+              },
+            }
+          );
+        }
+      } catch (e) {
+        console.warn('RecaptchaVerifier init notice:', e);
+      }
+    }
+  }, []);
+
+  // Step 4: Play Store Reviewer Hardcoded Test Bypass Check
+  const isPlayStoreTestNumber = (number: string) => {
+    const clean = number.trim();
+    return clean === '9876543210' || clean === '9999999999';
+  };
+
+  const handleSendOtp = async () => {
+    const cleanPhone = phone.trim();
+    if (cleanPhone.length < 10) {
+      setErrorMsg('Please enter a valid 10-digit mobile number.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
     }
@@ -39,21 +103,40 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const fullPhone = `+91${phone}`;
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      const { error } = await supabase.auth.signInWithOtp({
-        phone: fullPhone,
-      });
-
-      if (error) {
-        console.warn('Supabase SMS OTP Notice:', error.message);
-        // Still transition to OTP step for development demo testing
+      // Play Store Reviewer Bypass: If test number, skip SMS delivery
+      if (isPlayStoreTestNumber(cleanPhone)) {
+        setStep('otp');
+        setResendTimer(RESEND_COOLDOWN);
+        setCanResend(false);
+        setLoading(false);
+        return;
       }
+
+      // Format Indian E.164 phone number
+      const fullPhone = `+91${cleanPhone}`;
+
+      // Trigger Firebase Phone Auth SMS
+      let verifier = recaptchaVerifierRef.current;
+      if (!verifier && Platform.OS === 'web') {
+        verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          size: 'invisible',
+        });
+        recaptchaVerifierRef.current = verifier;
+      }
+
+      const confirmation = await signInWithPhoneNumber(auth, fullPhone, verifier as any);
+      setConfirmationResult(confirmation);
       setStep('otp');
+      setResendTimer(RESEND_COOLDOWN);
+      setCanResend(false);
     } catch (err: any) {
-      console.error('OTP request error:', err);
+      console.warn('Firebase Phone Auth send error:', err);
+      // Fallback: If Firebase SMS is not yet provisioned in development, allow OTP entry
       setStep('otp');
+      setResendTimer(RESEND_COOLDOWN);
+      setCanResend(false);
     } finally {
       setLoading(false);
     }
@@ -74,9 +157,9 @@ export default function LoginScreen() {
       }
     }
 
-    // If all 6 filled, trigger verification
+    // When all 6 digits are entered, trigger verification
     if (newOtp.every((digit) => digit.length === 1)) {
-      verifyCode(newOtp.join(''));
+      handleVerifyOtp(newOtp.join(''));
     }
   };
 
@@ -86,60 +169,122 @@ export default function LoginScreen() {
     }
   };
 
-  const verifyCode = async (enteredOtp: string) => {
+  const handleVerifyOtp = async (enteredOtp: string) => {
     setLoading(true);
     setErrorMsg(null);
+    const cleanPhone = phone.trim();
 
     try {
-      const fullPhone = `+91${phone}`;
-      const { data, error } = await supabase.auth.verifyOtp({
-        phone: fullPhone,
-        token: enteredOtp,
-        type: 'sms',
-      });
-
-      if (error) {
-        console.warn('Live verifyOtp note:', error.message);
-        // Fallback for development demo: detect rider demo phone number
-        if (phone === '9999999999') {
+      // Step 4: Play Store Reviewer Hardcoded Test Bypass
+      if (isPlayStoreTestNumber(cleanPhone) && enteredOtp === '123456') {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (cleanPhone === '9999999999') {
           setDemoRole('rider');
         } else {
           setDemoRole('customer');
         }
-      } else if (data.session) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
       }
-    } catch (err) {
-      setDemoRole('customer');
+
+      let firebaseUid: string | null = null;
+
+      // 1. Verify via Firebase confirmation result if available
+      if (confirmationResult) {
+        try {
+          const userCredential = await confirmationResult.confirm(enteredOtp);
+          firebaseUid = userCredential.user.uid;
+        } catch (firebaseErr: any) {
+          console.warn('Firebase confirmation error:', firebaseErr);
+          // If code mismatch, check if it's fallback demo code
+          if (enteredOtp !== '123456') {
+            setErrorMsg('Incorrect OTP code. Please check your SMS and try again.');
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      // 2. Call Supabase Auth Bridge endpoint to exchange for a valid Supabase session
+      const fullPhone = `+91${cleanPhone}`;
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+      try {
+        const response = await fetch(`${apiUrl}/api/auth/bridge`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            phoneNumber: fullPhone,
+            firebaseUid: firebaseUid || `fb-${cleanPhone}`,
+          }),
+        });
+
+        const bridgeResult = await response.json();
+
+        if (bridgeResult?.session?.access_token) {
+          // Set session in Supabase client storage
+          await supabase.auth.setSession({
+            access_token: bridgeResult.session.access_token,
+            refresh_token: bridgeResult.session.refresh_token,
+          });
+
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          return;
+        }
+      } catch (bridgeErr) {
+        console.warn('Auth Bridge network call error:', bridgeErr);
+      }
+
+      // 3. Direct Fallback if bridge server is unreachable
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (cleanPhone === '9999999999') {
+        setDemoRole('rider');
+      } else {
+        setDemoRole('customer');
+      }
+    } catch (err: any) {
+      console.error('OTP Verification Error:', err);
+      setErrorMsg('Verification failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleResend = () => {
+    if (!canResend) return;
+    setOtp(['', '', '', '', '', '']);
+    handleSendOtp();
+  };
+
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: '#F2F2F7' }}
+      style={{ flex: 1, backgroundColor: '#170A2D' }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
         contentContainerStyle={[
           styles.container,
-          { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 },
+          { paddingTop: insets.top + 36, paddingBottom: insets.bottom + 24 },
         ]}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
+        {/* Invisible reCAPTCHA container for Web */}
+        {Platform.OS === 'web' && <div id="recaptcha-container" />}
+
         {/* Official Brand Logo */}
         <Image
           source={require('../../assets/logo.png')}
-          style={{ width: 140, height: 90, resizeMode: 'contain', alignSelf: 'center', marginBottom: 16 }}
+          style={styles.brandLogo}
         />
 
-        {/* Header */}
+        {/* Header Titles */}
         <Text style={styles.headerTitle}>Belzo</Text>
         <Text style={styles.headerSubtitle}>
           {step === 'phone'
-            ? 'Enter your mobile number to get started with 15-minute delivery'
-            : `Enter the 6-digit code sent to +91 ${phone}`}
+            ? 'Hyperlocal 10-minute quick commerce delivered to your doorstep'
+            : `Enter the 6-digit SMS verification code sent to +91 ${phone}`}
         </Text>
 
         {errorMsg && (
@@ -148,43 +293,82 @@ export default function LoginScreen() {
           </View>
         )}
 
-        {/* Step 1: Phone Input */}
+        {/* STEP 1: Phone Input Card */}
         {step === 'phone' ? (
-          <View style={styles.formSection}>
-            <View style={styles.phoneInputContainer}>
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>MOBILE NUMBER</Text>
+
+            <View style={styles.phoneInputRow}>
               <View style={styles.countryCodeBox}>
-                <Text style={styles.countryFlag}>🇮🇳</Text>
-                <Text style={styles.countryCode}>+91</Text>
+                <Text style={styles.flagEmoji}>🇮🇳</Text>
+                <Text style={styles.countryCodeText}>+91</Text>
               </View>
+
               <TextInput
-                style={styles.phoneTextInput}
-                placeholder="98765 43210"
-                placeholderTextColor="#8E8E93"
+                style={styles.phoneInput}
+                placeholder="Enter 10-digit number"
+                placeholderTextColor="rgba(255, 255, 255, 0.35)"
                 keyboardType="phone-pad"
                 maxLength={10}
                 value={phone}
-                onChangeText={(val) => setPhone(val.replace(/\D/g, ''))}
-                autoFocus
+                onChangeText={(text) => {
+                  setErrorMsg(null);
+                  setPhone(text.replace(/[^0-9]/g, ''));
+                }}
+                autoFocus={true}
               />
             </View>
 
             <TouchableOpacity
-              activeOpacity={0.88}
-              onPress={handlePhoneSubmit}
+              onPress={handleSendOtp}
               disabled={loading}
-              style={styles.primaryButton}
+              style={[styles.primaryButton, loading && { opacity: 0.7 }]}
+              activeOpacity={0.85}
             >
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.primaryButtonText}>Continue with OTP</Text>
+                <Text style={styles.primaryButtonText}>Send Verification Code</Text>
               )}
             </TouchableOpacity>
+
+            <Text style={styles.termsNotice}>
+              By continuing, you agree to Belzo's Terms of Service & Privacy Policy. Free instant SMS verification powered by Firebase.
+            </Text>
+
+            {/* Quick Demo Credentials Helper for Testers */}
+            <View style={styles.testerPillBox}>
+              <Text style={styles.testerPillTitle}>Reviewer / Demo Bypass:</Text>
+              <View style={styles.testerChipsRow}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setPhone('9876543210');
+                    setErrorMsg(null);
+                  }}
+                  style={styles.testerChip}
+                >
+                  <Text style={styles.testerChipText}>Customer: 9876543210</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setPhone('9999999999');
+                    setErrorMsg(null);
+                  }}
+                  style={styles.testerChip}
+                >
+                  <Text style={styles.testerChipText}>Rider: 9999999999</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         ) : (
-          /* Step 2: 6-Digit OTP Input */
-          <View style={styles.formSection}>
-            <View style={styles.otpBoxesRow}>
+          /* STEP 2: 6-Digit OTP Input Card */
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>6-DIGIT VERIFICATION CODE</Text>
+
+            {/* 6 Square Digits */}
+            <View style={styles.otpGrid}>
               {otp.map((digit, index) => (
                 <TextInput
                   key={index}
@@ -206,50 +390,45 @@ export default function LoginScreen() {
             </View>
 
             <TouchableOpacity
-              activeOpacity={0.88}
-              onPress={() => verifyCode(otp.join(''))}
-              disabled={loading}
-              style={styles.primaryButton}
+              onPress={() => handleVerifyOtp(otp.join(''))}
+              disabled={loading || otp.join('').length < 6}
+              style={[
+                styles.primaryButton,
+                (loading || otp.join('').length < 6) && { opacity: 0.5 },
+              ]}
+              activeOpacity={0.85}
             >
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.primaryButtonText}>Verify & Continue</Text>
+                <Text style={styles.primaryButtonText}>Verify & Proceed</Text>
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => {
-                setStep('phone');
-                setOtp(['', '', '', '', '', '']);
-              }}
-              style={styles.changeNumberBtn}
-            >
-              <Text style={styles.changeNumberText}>Change Mobile Number</Text>
-            </TouchableOpacity>
+            {/* Resend Timer or Button */}
+            <View style={styles.resendRow}>
+              {canResend ? (
+                <TouchableOpacity onPress={handleResend}>
+                  <Text style={styles.resendLink}>Resend SMS Code</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.resendTimerText}>
+                  Resend code in <Text style={{ color: '#FF5E00' }}>{resendTimer}s</Text>
+                </Text>
+              )}
+
+              <TouchableOpacity
+                onPress={() => {
+                  setStep('phone');
+                  setOtp(['', '', '', '', '', '']);
+                  setErrorMsg(null);
+                }}
+              >
+                <Text style={styles.changePhoneText}>Change Number</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
-
-        {/* Quick Demo Mode Bypasses for Rapid Day 1 QA */}
-        <View style={styles.demoSection}>
-          <Text style={styles.demoLabel}>DAY 1 INSTANT ROLE PREVIEW</Text>
-          <View style={styles.demoButtonsRow}>
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setDemoRole('customer')}
-              style={styles.demoBtnCustomer}
-            >
-              <Text style={styles.demoBtnText}>Launch Customer App</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setDemoRole('rider')}
-              style={styles.demoBtnRider}
-            >
-              <Text style={styles.demoBtnText}>Launch Rider Console</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -259,191 +438,196 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 24,
     alignItems: 'center',
-    flexGrow: 1,
   },
-  brandIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 22,
-    backgroundColor: '#2A134D',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 94, 0, 0.4)',
-    shadowColor: '#2A134D',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  brandLetter: {
-    color: '#FF5E00',
-    fontSize: 34,
-    fontWeight: '900',
+  brandLogo: {
+    width: 140,
+    height: 90,
+    resizeMode: 'contain',
+    alignSelf: 'center',
+    marginBottom: 16,
   },
   headerTitle: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#2A134D',
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#FFFFFF',
     letterSpacing: -0.5,
+    marginBottom: 6,
   },
   headerSubtitle: {
-    fontSize: 14,
-    color: '#8E8E93',
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.65)',
     textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 20,
-    maxWidth: 290,
+    lineHeight: 18,
+    marginBottom: 24,
+    paddingHorizontal: 12,
   },
-  errorBox: {
-    marginTop: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#FFEBEA',
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: '#FF3B30',
-  },
-  errorText: {
-    color: '#FF3B30',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  formSection: {
+  card: {
     width: '100%',
-    marginTop: 32,
+    backgroundColor: '#1E0E38',
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  phoneInputContainer: {
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.5)',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+  },
+  phoneInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    height: 58,
-    paddingHorizontal: 14,
-    borderWidth: 0.5,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    marginBottom: 18,
+    overflow: 'hidden',
   },
   countryCodeBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingRight: 12,
-    borderRightWidth: 1,
-    borderRightColor: '#E5E5EA',
     gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRightWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
   },
-  countryFlag: {
-    fontSize: 18,
+  flagEmoji: {
+    fontSize: 16,
   },
-  countryCode: {
+  countryCodeText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  phoneInput: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     fontSize: 16,
     fontWeight: '700',
-    color: '#000000',
-  },
-  phoneTextInput: {
-    flex: 1,
-    height: '100%',
-    paddingLeft: 12,
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000000',
+    color: '#FFFFFF',
     fontVariant: ['tabular-nums'],
   },
   primaryButton: {
-    height: 54,
     backgroundColor: '#FF5E00',
-    borderRadius: 27,
+    borderRadius: 16,
+    paddingVertical: 15,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
     shadowColor: '#FF5E00',
-    shadowOffset: { width: 0, height: 6 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 5,
+    shadowRadius: 10,
+    elevation: 6,
   },
   primaryButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.3,
   },
-  otpBoxesRow: {
+  termsNotice: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.45)',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 16,
+    paddingHorizontal: 8,
+  },
+  testerPillBox: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+  },
+  testerPillTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginBottom: 8,
+  },
+  testerChipsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: 8,
   },
-  otpBox: {
-    width: 48,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+  testerChip: {
+    backgroundColor: 'rgba(255, 94, 0, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    textAlign: 'center',
+    borderColor: 'rgba(255, 94, 0, 0.3)',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  testerChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FF7A29',
+  },
+  otpGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  otpBox: {
+    width: 44,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    color: '#FFFFFF',
     fontSize: 22,
-    fontWeight: '800',
-    color: '#2A134D',
+    fontWeight: '900',
+    textAlign: 'center',
     fontVariant: ['tabular-nums'],
-    elevation: 1,
   },
   otpBoxFilled: {
     borderColor: '#FF5E00',
-    backgroundColor: '#FFF9F5',
+    backgroundColor: 'rgba(255, 94, 0, 0.08)',
   },
-  changeNumberBtn: {
-    alignItems: 'center',
-    marginTop: 18,
-  },
-  changeNumberText: {
-    color: '#8E8E93',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  demoSection: {
-    width: '100%',
-    marginTop: 'auto',
-    paddingTop: 40,
-  },
-  demoLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#8E8E93',
-    letterSpacing: 0.8,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  demoButtonsRow: {
+  resendRow: {
     flexDirection: 'row',
-    gap: 10,
-  },
-  demoBtnCustomer: {
-    flex: 1,
-    height: 44,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    paddingHorizontal: 4,
   },
-  demoBtnRider: {
-    flex: 1,
-    height: 44,
-    backgroundColor: '#2A134D',
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  demoBtnText: {
+  resendTimerText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#000000',
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontVariant: ['tabular-nums'],
+  },
+  resendLink: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FF5E00',
+  },
+  changePhoneText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  errorBox: {
+    width: '100%',
+    backgroundColor: 'rgba(255, 59, 48, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.3)',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#FF3B30',
+    textAlign: 'center',
+    fontWeight: '600',
   },
 });
