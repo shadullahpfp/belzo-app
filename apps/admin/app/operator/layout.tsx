@@ -1,16 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Bell,
   Box,
   Truck,
-  Store,
-  Layers,
-  Sparkles,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -32,34 +28,34 @@ export default function OperatorLayout({
   };
 
   return (
-    <div className="min-h-screen bg-[#0F0A1C] text-white flex flex-col font-sans">
-      {/* Operator Station Top Bar */}
-      <header className="sticky top-0 z-50 bg-[#170A2D]/90 backdrop-blur-md border-b border-white/10 px-4 sm:px-6 py-3">
+    <div className="min-h-screen bg-[#F8F9FA] text-gray-900 flex flex-col font-sans antialiased">
+      {/* Operator Station Top Bar (Clean White Frosted Bar) */}
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-black/5 px-4 sm:px-6 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Brand & Store Node Badge */}
           <div className="flex items-center gap-4">
             <Link href="/operator" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/10 p-1 flex items-center justify-center border border-white/15 shadow-md">
+              <div className="w-10 h-10 rounded-xl bg-transparent p-1 flex items-center justify-center">
                 <Image
                   src="/logo.png"
                   alt="Belzo Logo"
-                  width={36}
-                  height={36}
+                  width={38}
+                  height={38}
                   className="w-full h-full object-contain"
                   priority
                 />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="font-extrabold text-base tracking-tight text-white">
+                  <h1 className="font-extrabold text-base tracking-tight text-gray-950">
                     Belzo Dispatch Terminal
                   </h1>
-                  <span className="text-[10px] uppercase font-black tracking-wider px-2 py-0.5 rounded-full bg-[#FF5E00]/20 text-[#FF5E00] border border-[#FF5E00]/30">
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-orange-50 text-[#FF5E00] border border-orange-200">
                     Operator
                   </span>
                 </div>
-                <p className="text-xs text-white/60 font-medium">
-                  Belzo Central Hub 01 • Koramangala Micro-Fulfillment
+                <p className="text-xs text-gray-500 font-medium">
+                  Belzo Central Hub 01 • Joniha Chauraha, Bindki (5 KM Radius)
                 </p>
               </div>
             </Link>
@@ -67,13 +63,13 @@ export default function OperatorLayout({
 
           {/* Nav Tabs & Live Controls */}
           <div className="flex items-center gap-3">
-            <nav className="hidden md:flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
+            <nav className="hidden md:flex items-center gap-1 bg-gray-100 p-1 rounded-2xl border border-black/5">
               <Link
                 href="/operator"
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
                   pathname === '/operator'
-                    ? 'bg-[#FF5E00] text-white shadow-md'
-                    : 'text-white/70 hover:text-white hover:bg-white/5'
+                    ? 'bg-[#FF5E00] text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-white/60'
                 }`}
               >
                 <Truck className="w-3.5 h-3.5" />
@@ -81,10 +77,10 @@ export default function OperatorLayout({
               </Link>
               <Link
                 href="/operator/inventory"
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
                   pathname === '/operator/inventory'
-                    ? 'bg-[#FF5E00] text-white shadow-md'
-                    : 'text-white/70 hover:text-white hover:bg-white/5'
+                    ? 'bg-[#FF5E00] text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-white/60'
                 }`}
               >
                 <Box className="w-3.5 h-3.5" />
@@ -96,18 +92,18 @@ export default function OperatorLayout({
             <button
               onClick={toggleSound}
               title={soundEnabled ? 'Mute Order Chime' : 'Unmute Order Chime'}
-              className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-2.5 rounded-xl bg-gray-100 border border-black/5 text-gray-700 hover:text-gray-900 hover:bg-gray-200 transition-colors"
             >
               {soundEnabled ? (
-                <Volume2 className="w-4 h-4 text-[#34C759]" />
+                <Volume2 className="w-4 h-4 text-[#047857]" />
               ) : (
-                <VolumeX className="w-4 h-4 text-white/40" />
+                <VolumeX className="w-4 h-4 text-gray-400" />
               )}
             </button>
 
             {/* Live WebSocket CDC Status */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
               <span className="hidden sm:inline">CDC Realtime:</span> Live
             </div>
           </div>
@@ -115,11 +111,11 @@ export default function OperatorLayout({
       </header>
 
       {/* Mobile Nav Subbar */}
-      <div className="md:hidden flex items-center justify-around bg-[#170A2D] border-b border-white/10 p-2 text-xs font-bold">
+      <div className="md:hidden flex items-center justify-around bg-white border-b border-black/5 p-2 text-xs font-bold">
         <Link
           href="/operator"
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-            pathname === '/operator' ? 'bg-[#FF5E00] text-white' : 'text-white/70'
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl ${
+            pathname === '/operator' ? 'bg-[#FF5E00] text-white' : 'text-gray-600'
           }`}
         >
           <Truck className="w-4 h-4" />
@@ -127,10 +123,10 @@ export default function OperatorLayout({
         </Link>
         <Link
           href="/operator/inventory"
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl ${
             pathname === '/operator/inventory'
               ? 'bg-[#FF5E00] text-white'
-              : 'text-white/70'
+              : 'text-gray-600'
           }`}
         >
           <Box className="w-4 h-4" />

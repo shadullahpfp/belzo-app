@@ -1,459 +1,292 @@
--- =====================================================================
--- Belzo Hyperlocal Quick-Commerce Ecosystem
--- Supabase PostgreSQL Schema & Security Specification
--- File: docs/SCHEMA.sql
--- =====================================================================
+-- =============================================================================
+-- BELZO HYPERLOCAL QUICK-COMMERCE ECOSYSTEM — DATABASE DDL
+-- Target Engine: PostgreSQL 15+ (Supabase Native)
+-- Target Hub: Joniha Central Hub (26.0350, 80.4650), Bindki, UP
+-- Version: 2.1.0 (Production Release)
+-- =============================================================================
 
--- Enable essential extensions
+-- Enable required Postgres extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- ---------------------------------------------------------------------
--- 1. ENUMS & DOMAIN TYPES
--- ---------------------------------------------------------------------
+-- =============================================================================
+-- 1. ENUMS & DOMAINS
+-- =============================================================================
+
 DO $$ BEGIN
-    CREATE TYPE public.user_role AS ENUM ('customer', 'rider', 'store_operator', 'admin');
+    CREATE TYPE user_role AS ENUM ('customer', 'rider', 'store_operator', 'admin');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE public.order_status AS ENUM (
-        'placed',
-        'accepted',
-        'preparing',
-        'ready_for_pickup',
-        'out_for_delivery',
-        'delivered',
-        'cancelled'
-    );
+    CREATE TYPE order_status AS ENUM ('placed', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'cancelled');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE public.payment_status AS ENUM (
-        'pending',
-        'paid',
-        'failed',
-        'refunded'
-    );
+    CREATE TYPE payment_method AS ENUM ('cod', 'online');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE public.payment_method AS ENUM (
-        'cod',
-        'upi',
-        'card',
-        'wallet',
-        'netbanking'
-    );
+    CREATE TYPE payment_status AS ENUM ('pending', 'completed', 'failed', 'refunded');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE public.vehicle_type AS ENUM (
-        'bicycle',
-        'motorcycle',
-        'scooter',
-        'ev_bike'
-    );
+    CREATE TYPE kyc_status AS ENUM ('pending', 'verified', 'rejected');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
--- ---------------------------------------------------------------------
+-- =============================================================================
 -- 2. CORE TABLES
--- ---------------------------------------------------------------------
+-- =============================================================================
 
--- 2.1 User Profiles (Linked to Supabase Auth)
+-- 2.1 Dark Stores / Fulfillment Hubs
+CREATE TABLE IF NOT EXISTS public.dark_stores (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    hub_code VARCHAR(50) UNIQUE NOT NULL,
+    address TEXT NOT NULL,
+    latitude NUMERIC(10, 7) NOT NULL,
+    longitude NUMERIC(10, 7) NOT NULL,
+    service_radius_km NUMERIC(4, 2) DEFAULT 5.00,
+    contact_phone VARCHAR(20) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- 2.2 Profiles (Maps directly to Supabase auth.users)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     phone VARCHAR(20) UNIQUE NOT NULL,
-    full_name VARCHAR(100),
-    email VARCHAR(255),
+    full_name VARCHAR(150),
+    role user_role DEFAULT 'customer' NOT NULL,
     avatar_url TEXT,
-    role public.user_role NOT NULL DEFAULT 'customer',
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+    default_address JSONB,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
 
--- Index for role-based lookups
-CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
-CREATE INDEX IF NOT EXISTS idx_profiles_phone ON public.profiles(phone);
-
--- 2.2 Dark Stores / Fulfillment Hubs
-CREATE TABLE IF NOT EXISTS public.dark_stores (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(120) NOT NULL,
-    code VARCHAR(20) UNIQUE NOT NULL, -- e.g. BLZ-BLR-KOR-01
-    address TEXT NOT NULL,
-    lat DOUBLE PRECISION NOT NULL,
-    lng DOUBLE PRECISION NOT NULL,
-    service_radius_km NUMERIC(4, 2) NOT NULL DEFAULT 4.00,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+-- 2.3 Couriers / Delivery Riders Fleet
+CREATE TABLE IF NOT EXISTS public.riders (
+    id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+    vehicle_type VARCHAR(50) DEFAULT 'Motorcycle',
+    vehicle_number VARCHAR(50) NOT NULL,
+    license_number VARCHAR(100) NOT NULL,
+    kyc_status kyc_status DEFAULT 'verified' NOT NULL,
+    is_online BOOLEAN DEFAULT FALSE NOT NULL,
+    current_latitude NUMERIC(10, 7),
+    current_longitude NUMERIC(10, 7),
+    store_id UUID REFERENCES public.dark_stores(id),
+    total_deliveries INTEGER DEFAULT 0 NOT NULL,
+    rating NUMERIC(3, 2) DEFAULT 5.00 NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
 
--- 2.3 Product Categories (6 Core Verticals)
+-- 2.4 Categories
 CREATE TABLE IF NOT EXISTS public.categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(100) NOT NULL,
     slug VARCHAR(100) UNIQUE NOT NULL,
-    vertical VARCHAR(50) NOT NULL,
-    icon_name VARCHAR(50),
-    image_url TEXT,
-    sort_order INT NOT NULL DEFAULT 0,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+    icon VARCHAR(100) NOT NULL,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
 
--- 2.4 Products Master Catalog
+-- 2.5 Catalog Products
 CREATE TABLE IF NOT EXISTS public.products (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    dark_store_id UUID REFERENCES public.dark_stores(id) ON DELETE SET NULL,
-    category_id UUID NOT NULL REFERENCES public.categories(id) ON DELETE RESTRICT,
-    name VARCHAR(200) NOT NULL,
-    slug VARCHAR(220) NOT NULL,
+    store_id UUID REFERENCES public.dark_stores(id) ON DELETE CASCADE NOT NULL,
+    category_id UUID REFERENCES public.categories(id) ON DELETE RESTRICT NOT NULL,
+    name VARCHAR(255) NOT NULL,
     description TEXT,
-    unit VARCHAR(50) NOT NULL, -- e.g. 500g, 1L, Pack of 2
-    mrp NUMERIC(10, 2) NOT NULL,
+    unit VARCHAR(50) NOT NULL,
     price NUMERIC(10, 2) NOT NULL,
-    stock_quantity INT NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
-    media_urls TEXT[] NOT NULL DEFAULT '{}',
-    is_available BOOLEAN NOT NULL DEFAULT true,
-    barcode VARCHAR(100),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+    discount_price NUMERIC(10, 2),
+    stock_quantity INTEGER DEFAULT 50 NOT NULL,
+    is_available BOOLEAN DEFAULT TRUE NOT NULL,
+    image_url TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
 
-CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category_id);
-CREATE INDEX IF NOT EXISTS idx_products_dark_store ON public.products(dark_store_id);
-CREATE INDEX IF NOT EXISTS idx_products_is_available ON public.products(is_available);
-
--- 2.5 Customer Saved Addresses
-CREATE TABLE IF NOT EXISTS public.addresses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    label VARCHAR(30) NOT NULL DEFAULT 'Home', -- Home, Work, Other
-    recipient_name VARCHAR(100) NOT NULL,
-    recipient_phone VARCHAR(20) NOT NULL,
-    house_flat_no VARCHAR(100) NOT NULL,
-    apartment_road_area TEXT NOT NULL,
-    landmark VARCHAR(150),
-    city VARCHAR(100) NOT NULL,
-    postal_code VARCHAR(20) NOT NULL,
-    lat DOUBLE PRECISION NOT NULL,
-    lng DOUBLE PRECISION NOT NULL,
-    is_default BOOLEAN NOT NULL DEFAULT false,
-    delivery_instructions TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_user_id ON public.addresses(user_id);
-
--- 2.6 Delivery Partners (Riders)
-CREATE TABLE IF NOT EXISTS public.riders (
-    id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
-    vehicle_type public.vehicle_type NOT NULL DEFAULT 'motorcycle',
-    vehicle_number VARCHAR(30) NOT NULL,
-    driving_license_no VARCHAR(50),
-    is_online BOOLEAN NOT NULL DEFAULT false,
-    current_lat DOUBLE PRECISION,
-    current_lng DOUBLE PRECISION,
-    last_ping TIMESTAMPTZ,
-    is_verified BOOLEAN NOT NULL DEFAULT false,
-    assigned_dark_store_id UUID REFERENCES public.dark_stores(id) ON DELETE SET NULL,
-    active_order_id UUID,
-    rating NUMERIC(3, 2) NOT NULL DEFAULT 5.00,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-
-CREATE INDEX IF NOT EXISTS idx_riders_is_online ON public.riders(is_online);
-CREATE INDEX IF NOT EXISTS idx_riders_location ON public.riders(current_lat, current_lng);
-
--- 2.7 Orders
+-- 2.6 Orders Ledger
 CREATE TABLE IF NOT EXISTS public.orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_number VARCHAR(30) UNIQUE NOT NULL,
-    customer_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
-    rider_id UUID REFERENCES public.riders(id) ON DELETE SET NULL,
-    dark_store_id UUID NOT NULL REFERENCES public.dark_stores(id) ON DELETE RESTRICT,
-    store_id UUID REFERENCES public.dark_stores(id) ON DELETE RESTRICT,
+    order_number SERIAL,
+    customer_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL NOT NULL,
+    store_id UUID REFERENCES public.dark_stores(id) ON DELETE RESTRICT NOT NULL,
     transferred_from_store_id UUID REFERENCES public.dark_stores(id) ON DELETE SET NULL,
-    status public.order_status NOT NULL DEFAULT 'placed',
-    
-    -- Financials
-    items_total NUMERIC(10, 2) NOT NULL,
-    discount_amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
-    delivery_fee NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
-    surge_fee NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
-    tip_amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
-    net_payable NUMERIC(10, 2) NOT NULL,
-    
-    -- Payment
-    payment_method public.payment_method NOT NULL DEFAULT 'cod',
-    payment_status public.payment_status NOT NULL DEFAULT 'pending',
-    payment_transaction_id VARCHAR(100),
-    
-    -- Snapshot & Delivery Verification
-    delivery_address_snapshot JSONB NOT NULL,
-    delivery_otp VARCHAR(6) NOT NULL DEFAULT floor(random() * (9999 - 1000 + 1) + 1000)::text,
+    rider_id UUID REFERENCES public.riders(id) ON DELETE SET NULL,
+    status order_status DEFAULT 'placed' NOT NULL,
+    total_amount NUMERIC(10, 2) NOT NULL,
+    delivery_fee NUMERIC(10, 2) DEFAULT 0.00 NOT NULL,
+    platform_fee NUMERIC(10, 2) DEFAULT 5.00 NOT NULL,
+    payment_method payment_method DEFAULT 'cod' NOT NULL,
+    payment_status payment_status DEFAULT 'pending' NOT NULL,
+    delivery_address JSONB NOT NULL,
+    delivery_pin VARCHAR(4) NOT NULL,
     cancellation_reason TEXT,
-    
-    -- Milestones
-    placed_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    accepted_at TIMESTAMPTZ,
-    prepared_at TIMESTAMPTZ,
-    out_for_delivery_at TIMESTAMPTZ,
-    delivered_at TIMESTAMPTZ,
-    cancelled_at TIMESTAMPTZ,
-    
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
 
-CREATE INDEX IF NOT EXISTS idx_orders_customer ON public.orders(customer_id);
-CREATE INDEX IF NOT EXISTS idx_orders_rider ON public.orders(rider_id);
-CREATE INDEX IF NOT EXISTS idx_orders_status ON public.orders(status);
-CREATE INDEX IF NOT EXISTS idx_orders_dark_store ON public.orders(dark_store_id);
-
--- 2.8 Order Line Items
+-- 2.7 Order Items
 CREATE TABLE IF NOT EXISTS public.order_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-    product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE RESTRICT,
-    product_name VARCHAR(200) NOT NULL,
+    order_id UUID REFERENCES public.orders(id) ON DELETE CASCADE NOT NULL,
+    product_id UUID REFERENCES public.products(id) ON DELETE RESTRICT NOT NULL,
+    product_name_snapshot VARCHAR(255) NOT NULL,
     unit_price NUMERIC(10, 2) NOT NULL,
-    quantity INT NOT NULL CHECK (quantity > 0),
-    total_price NUMERIC(10, 2) NOT NULL,
-    item_snapshot JSONB NOT NULL DEFAULT '{}',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    subtotal NUMERIC(10, 2) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
 
-CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON public.order_items(order_id);
+-- 2.8 Coupons & Promotions
+CREATE TABLE IF NOT EXISTS public.coupons (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code VARCHAR(50) UNIQUE NOT NULL,
+    discount_type VARCHAR(20) DEFAULT 'flat' NOT NULL,
+    discount_value NUMERIC(10, 2) NOT NULL,
+    min_order_value NUMERIC(10, 2) DEFAULT 0.00 NOT NULL,
+    max_discount NUMERIC(10, 2),
+    expires_at TIMESTAMPTZ,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
+);
 
--- ---------------------------------------------------------------------
--- 3. AUTOMATED TRIGGERS & FUNCTIONS
--- ---------------------------------------------------------------------
+-- =============================================================================
+-- 3. INDEXES FOR HIGH-THROUGHPUT REALTIME DISPATCH
+-- =============================================================================
 
--- 3.1 Generic updated_at timestamp refresher
-CREATE OR REPLACE FUNCTION public.set_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = timezone('utc'::text, now());
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+CREATE INDEX IF NOT EXISTS idx_orders_customer ON public.orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_store_status ON public.orders(store_id, status);
+CREATE INDEX IF NOT EXISTS idx_orders_rider_status ON public.orders(rider_id, status);
+CREATE INDEX IF NOT EXISTS idx_products_store_category ON public.products(store_id, category_id);
+CREATE INDEX IF NOT EXISTS idx_products_availability ON public.products(is_available);
+CREATE INDEX IF NOT EXISTS idx_riders_online ON public.riders(is_online) WHERE is_online = TRUE;
 
-DO $$ BEGIN
-    CREATE TRIGGER tr_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
-    CREATE TRIGGER tr_categories_updated_at BEFORE UPDATE ON public.categories FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
-    CREATE TRIGGER tr_products_updated_at BEFORE UPDATE ON public.products FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
-    CREATE TRIGGER tr_addresses_updated_at BEFORE UPDATE ON public.addresses FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
-    CREATE TRIGGER tr_riders_updated_at BEFORE UPDATE ON public.riders FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
-    CREATE TRIGGER tr_orders_updated_at BEFORE UPDATE ON public.orders FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+-- =============================================================================
+-- 4. ROW LEVEL SECURITY (RLS) POLICIES
+-- =============================================================================
 
--- 3.2 Auto-create profile on auth.users sign-up
-CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO public.profiles (id, phone, full_name, role)
-    VALUES (
-        NEW.id,
-        COALESCE(NEW.phone, 'temp_' || substr(NEW.id::text, 1, 8)),
-        COALESCE(NEW.raw_user_meta_data->>'full_name', 'Belzo Member'),
-        'customer'
-    )
-    ON CONFLICT (id) DO NOTHING;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_auth_user();
-
--- 3.3 Helper function to check caller's role
-CREATE OR REPLACE FUNCTION public.current_user_role()
-RETURNS public.user_role AS $$
-    SELECT role FROM public.profiles WHERE id = auth.uid();
-$$ LANGUAGE sql STABLE SECURITY DEFINER;
-
--- ---------------------------------------------------------------------
--- 4. ROW-LEVEL SECURITY (RLS) POLICIES
--- ---------------------------------------------------------------------
-
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dark_stores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.riders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.addresses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.riders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
 
--- 4.1 Profiles Policies
-CREATE POLICY "Users can view own profile"
-    ON public.profiles FOR SELECT
-    USING (auth.uid() = id OR public.current_user_role() = 'admin');
+-- 4.1 Profiles Policy
+CREATE POLICY "Public profiles are readable by self and staff" ON public.profiles
+    FOR SELECT USING (auth.uid() = id OR EXISTS (
+        SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'store_operator')
+    ));
 
-CREATE POLICY "Users can update own profile"
-    ON public.profiles FOR UPDATE
-    USING (auth.uid() = id)
-    WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update own profile" ON public.profiles
+    FOR UPDATE USING (auth.uid() = id);
 
--- 4.2 Categories & Dark Stores Policies (Public Read, Admin Write)
-CREATE POLICY "Categories are readable by everyone"
-    ON public.categories FOR SELECT
-    USING (is_active = true OR public.current_user_role() = 'admin');
+-- 4.2 Dark Stores & Catalog Policy (Read public, Write staff)
+CREATE POLICY "Allow public read access to active dark stores" ON public.dark_stores
+    FOR SELECT USING (is_active = TRUE);
 
-CREATE POLICY "Admins have full access on categories"
-    ON public.categories FOR ALL
-    USING (public.current_user_role() = 'admin');
+CREATE POLICY "Allow public read access to categories" ON public.categories
+    FOR SELECT USING (is_active = TRUE);
 
-CREATE POLICY "Dark stores readable by authenticated users"
-    ON public.dark_stores FOR SELECT
-    TO authenticated
-    USING (true);
+CREATE POLICY "Allow public read access to products" ON public.products
+    FOR SELECT USING (is_available = TRUE);
 
-CREATE POLICY "Admins have full access on dark stores"
-    ON public.dark_stores FOR ALL
-    USING (public.current_user_role() = 'admin');
+CREATE POLICY "Allow store operators to update products" ON public.products
+    FOR ALL USING (EXISTS (
+        SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'store_operator')
+    ));
 
--- 4.3 Products Policies
-CREATE POLICY "Active products readable by all"
-    ON public.products FOR SELECT
-    USING (is_available = true OR public.current_user_role() IN ('admin', 'store_operator'));
+-- 4.3 Orders Policy
+CREATE POLICY "Customers can read their own orders" ON public.orders
+    FOR SELECT USING (customer_id = auth.uid());
 
-CREATE POLICY "Store operators can update product price and availability"
-    ON public.products FOR UPDATE
-    USING (public.current_user_role() IN ('store_operator', 'admin'))
-    WITH CHECK (public.current_user_role() IN ('store_operator', 'admin'));
+CREATE POLICY "Customers can insert orders" ON public.orders
+    FOR INSERT WITH CHECK (customer_id = auth.uid());
 
-CREATE POLICY "Admins can manage products"
-    ON public.products FOR ALL
-    USING (public.current_user_role() = 'admin');
+CREATE POLICY "Store operators manage orders for their hub" ON public.orders
+    FOR ALL USING (EXISTS (
+        SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'store_operator')
+    ));
 
--- 4.4 Addresses Policies
-CREATE POLICY "Users can view and manage own addresses"
-    ON public.addresses FOR ALL
-    USING (auth.uid() = user_id OR public.current_user_role() = 'admin');
+CREATE POLICY "Riders can read and update assigned orders" ON public.orders
+    FOR ALL USING (rider_id = auth.uid() OR (status = 'ready_for_pickup' AND rider_id IS NULL));
 
--- 4.5 Riders Policies
-CREATE POLICY "Riders can view and update own status"
-    ON public.riders FOR ALL
-    USING (auth.uid() = id OR public.current_user_role() = 'admin');
-
-CREATE POLICY "Customers can view assigned rider location"
-    ON public.riders FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.orders 
-            WHERE orders.rider_id = riders.id 
-            AND orders.customer_id = auth.uid() 
-            AND orders.status = 'out_for_delivery'
+-- 4.4 Order Items Policy
+CREATE POLICY "Users read order items for viewable orders" ON public.order_items
+    FOR SELECT USING (EXISTS (
+        SELECT 1 FROM public.orders WHERE orders.id = order_items.order_id AND (
+            orders.customer_id = auth.uid() OR orders.rider_id = auth.uid() OR EXISTS (
+                SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'store_operator')
+            )
         )
-    );
+    ));
 
--- 4.6 Orders Policies
-CREATE POLICY "Customers can view their own orders"
-    ON public.orders FOR SELECT
-    USING (auth.uid() = customer_id);
+CREATE POLICY "Customers can insert order items" ON public.order_items
+    FOR INSERT WITH CHECK (EXISTS (
+        SELECT 1 FROM public.orders WHERE orders.id = order_items.order_id AND orders.customer_id = auth.uid()
+    ));
 
-CREATE POLICY "Customers can create orders"
-    ON public.orders FOR INSERT
-    WITH CHECK (auth.uid() = customer_id);
+-- =============================================================================
+-- 5. REALTIME PUBLICATION SETUP
+-- =============================================================================
 
-CREATE POLICY "Riders can view assigned or pending pickup orders"
-    ON public.orders FOR SELECT
-    USING (
-        rider_id = auth.uid() 
-        OR (status = 'ready_for_pickup' AND public.current_user_role() = 'rider')
-    );
+-- Add high-velocity tables to the Supabase Realtime publication
+ALTER PUBLICATION supabase_realtime ADD TABLE public.orders;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.products;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.riders;
 
-CREATE POLICY "Riders can update their accepted orders"
-    ON public.orders FOR UPDATE
-    USING (rider_id = auth.uid())
-    WITH CHECK (rider_id = auth.uid());
+-- =============================================================================
+-- 6. JONIHA SEED DATA (Fulfillment Hub, Categories, and Catalog)
+-- =============================================================================
 
-CREATE POLICY "Store operators can view and process orders for their dark store"
-    ON public.orders FOR SELECT
-    USING (public.current_user_role() IN ('store_operator', 'admin'));
+-- 6.1 Insert Primary Joniha Dark Store Hub
+INSERT INTO public.dark_stores (id, name, hub_code, address, latitude, longitude, service_radius_km, contact_phone, is_active)
+VALUES (
+    'a0000000-0000-0000-0000-000000000001',
+    'Belzo Joniha Central Hub 01',
+    'BLZ-UP-JON01',
+    'Joniha Chauraha, Bindki Road, Fatehpur, UP - 212635',
+    26.0350000,
+    80.4650000,
+    5.00,
+    '+919876543210',
+    TRUE
+) ON CONFLICT (hub_code) DO UPDATE 
+SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, service_radius_km = EXCLUDED.service_radius_km;
 
-CREATE POLICY "Store operators can update order status, assign riders, or transfer hubs"
-    ON public.orders FOR UPDATE
-    USING (public.current_user_role() IN ('store_operator', 'admin'))
-    WITH CHECK (public.current_user_role() IN ('store_operator', 'admin'));
-
-CREATE POLICY "Admins have full control over orders"
-    ON public.orders FOR ALL
-    USING (public.current_user_role() = 'admin');
-
--- 4.7 Order Items Policies
-CREATE POLICY "Order items visible to order owner, assigned rider, or admin"
-    ON public.order_items FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.orders 
-            WHERE orders.id = order_items.order_id 
-            AND (orders.customer_id = auth.uid() OR orders.rider_id = auth.uid() OR public.current_user_role() = 'admin')
-        )
-    );
-
-CREATE POLICY "Customers can insert items when placing order"
-    ON public.order_items FOR INSERT
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM public.orders 
-            WHERE orders.id = order_items.order_id 
-            AND orders.customer_id = auth.uid()
-        )
-    );
-
--- ---------------------------------------------------------------------
--- 5. REALTIME REPLICATION CONFIGURATION
--- ---------------------------------------------------------------------
--- Enable PostgreSQL CDC replication for live tracking and dispatch
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.orders;
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.riders;
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- ---------------------------------------------------------------------
--- 6. PRE-SEEDED VERTICAL CATEGORIES & SEED DATA
--- ---------------------------------------------------------------------
-
-INSERT INTO public.categories (name, slug, vertical, icon_name, sort_order) VALUES
-    ('Grocery & Staples', 'grocery-staples', 'Grocery', 'shopping-basket', 1),
-    ('Fresh Fruits & Vegetables', 'fruits-vegetables', 'Fruits & Vegetables', 'apple', 2),
-    ('Food & Restaurant Kitchen', 'food-restaurant', 'Food & Restaurant', 'utensils', 3),
-    ('Medicine & Daily Health', 'medicine-healthcare', 'Medicine & Healthcare', 'pill', 4),
-    ('Fashion & Daily Wear', 'fashion-lifestyle', 'Fashion', 'shirt', 5),
-    ('Electronics & Accessories', 'electronics-appliances', 'Electronics', 'smartphone', 6)
+-- 6.2 Insert Standard Categories
+INSERT INTO public.categories (id, name, slug, icon, sort_order) VALUES
+('c0000000-0000-0000-0000-000000000001', 'Dairy & Eggs', 'dairy', 'milk', 1),
+('c0000000-0000-0000-0000-000000000002', 'Fresh Produce', 'produce', 'carrot', 2),
+('c0000000-0000-0000-0000-000000000003', 'Bakery & Bread', 'bakery', 'croissant', 3),
+('c0000000-0000-0000-0000-000000000004', 'Snacks & Drinks', 'snacks', 'cookie', 4),
+('c0000000-0000-0000-0000-000000000005', 'Pharmacy & Care', 'pharma', 'pill', 5),
+('c0000000-0000-0000-0000-000000000006', 'Fast Tech & Cable', 'tech', 'zap', 6)
 ON CONFLICT (slug) DO NOTHING;
 
--- Seed a default Dark Store hub
-INSERT INTO public.dark_stores (name, code, address, lat, lng, service_radius_km)
-VALUES 
-    ('Belzo Central Hub - Koramangala', 'BLZ-BLR-KOR-01', '14, 80 Feet Road, 4th Block, Koramangala, Bengaluru, Karnataka 560034', 12.934533, 77.626579, 4.5)
-ON CONFLICT (code) DO NOTHING;
+-- 6.3 Insert Core Verified Catalog for Joniha Hub
+INSERT INTO public.products (store_id, category_id, name, description, unit, price, discount_price, stock_quantity, is_available, image_url) VALUES
+('a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'Amul Taaza Fresh Toned Milk', 'Pasteurized toned milk with 3.0% fat, 8.5% SNF.', '500 ml', 34.00, 32.00, 60, TRUE, 'https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=600&q=80'),
+('a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 'Harvest Gold 100% Atta Brown Bread', 'Wholesome brown bread packed with dietary fibre.', '400 g', 49.00, 45.00, 40, TRUE, 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=600&q=80'),
+('a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'Farm Fresh Red Ripe Tomatoes', 'Locally sourced desi tomatoes from Fatehpur belt.', '1 kg', 38.00, 32.00, 80, TRUE, 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=600&q=80'),
+('a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'Organic Hass Avocado (Pack of 2)', 'Creamy imported avocados ready to eat.', '2 pcs', 189.00, 169.00, 20, TRUE, 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?auto=format&fit=crop&w=600&q=80'),
+('a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000006', 'Type-C Fast Braided Charging Cable', '100W Power Delivery durable nylon braided cable.', '1.2 m', 299.00, 249.00, 25, TRUE, 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=600&q=80'),
+('a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000005', 'Electrolyte Hydration Powder (Lime)', 'Rapid rehydration energy electrolyte sachets.', '5 sachets', 99.00, 85.00, 50, TRUE, 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=600&q=80')
+ON CONFLICT DO NOTHING;

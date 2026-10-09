@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -17,14 +16,9 @@ import {
   Heart,
   ShoppingBag,
   Calendar,
-  Clock,
   MapPin,
-  ChevronRight,
-  IndianRupee,
 } from 'lucide-react-native';
 import { useRiderStore } from '../../store/useRiderStore';
-
-const { width } = Dimensions.get('window');
 
 export default function RiderEarningsScreen() {
   const insets = useSafeAreaInsets();
@@ -36,7 +30,7 @@ export default function RiderEarningsScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <ArrowLeft size={20} color="#FFFFFF" />
+          <ArrowLeft size={20} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Shift Ledger & Earnings</Text>
         <View style={{ width: 38 }} />
@@ -49,7 +43,7 @@ export default function RiderEarningsScreen() {
         {/* Main Payout Hero Card */}
         <View style={styles.heroCard}>
           <View style={styles.heroBadge}>
-            <TrendingUp size={12} color="#34C759" />
+            <TrendingUp size={12} color="#047857" />
             <Text style={styles.heroBadgeText}>LIVE SHIFT ACCRUAL</Text>
           </View>
 
@@ -60,7 +54,7 @@ export default function RiderEarningsScreen() {
           <View style={styles.breakdownGrid}>
             <View style={styles.breakdownItem}>
               <View style={styles.breakdownLabelRow}>
-                <Award size={12} color="rgba(255,255,255,0.6)" />
+                <Award size={12} color="#6B7280" />
                 <Text style={styles.breakdownLabel}>Base Pay</Text>
               </View>
               <Text style={styles.breakdownValue}>₹{shiftMetrics.basePay}</Text>
@@ -68,27 +62,27 @@ export default function RiderEarningsScreen() {
 
             <View style={styles.breakdownItem}>
               <View style={styles.breakdownLabelRow}>
-                <Zap size={12} color="#FF7A29" />
+                <Zap size={12} color="#FF5E00" />
                 <Text style={styles.breakdownLabel}>Surge Pay</Text>
               </View>
-              <Text style={[styles.breakdownValue, { color: '#FF7A29' }]}>
+              <Text style={[styles.breakdownValue, { color: '#FF5E00' }]}>
                 ₹{shiftMetrics.surgePay}
               </Text>
             </View>
 
             <View style={styles.breakdownItem}>
               <View style={styles.breakdownLabelRow}>
-                <Heart size={12} color="#FF2D55" />
+                <Heart size={12} color="#E11D48" />
                 <Text style={styles.breakdownLabel}>Tips</Text>
               </View>
-              <Text style={[styles.breakdownValue, { color: '#FF2D55' }]}>
+              <Text style={[styles.breakdownValue, { color: '#E11D48' }]}>
                 ₹{shiftMetrics.tips}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Secondary KPI Stats */}
+        {/* Secondary KPI Stats (3-Card Layout) */}
         <View style={styles.kpiRow}>
           <View style={styles.kpiBox}>
             <ShoppingBag size={16} color="#FF5E00" />
@@ -97,13 +91,13 @@ export default function RiderEarningsScreen() {
           </View>
 
           <View style={styles.kpiBox}>
-            <MapPin size={16} color="#34C759" />
+            <MapPin size={16} color="#047857" />
             <Text style={styles.kpiVal}>{shiftMetrics.totalDistanceKm} km</Text>
             <Text style={styles.kpiLabel}>Distance Done</Text>
           </View>
 
           <View style={styles.kpiBox}>
-            <Calendar size={16} color="#FAA307" />
+            <Calendar size={16} color="#D97706" />
             <Text style={styles.kpiVal}>₹{(shiftMetrics.todayEarnings * 5.5).toFixed(0)}</Text>
             <Text style={styles.kpiLabel}>Weekly Est.</Text>
           </View>
@@ -120,7 +114,7 @@ export default function RiderEarningsScreen() {
               <View key={trip.id} style={styles.tripCard}>
                 <View style={styles.tripLeft}>
                   <View style={styles.tripCheckDot}>
-                    <ShoppingBag size={14} color="#34C759" />
+                    <ShoppingBag size={14} color="#047857" />
                   </View>
                   <View>
                     <View style={styles.tripCodeRow}>
@@ -151,7 +145,7 @@ export default function RiderEarningsScreen() {
         <View style={styles.payoutScheduleCard}>
           <Text style={styles.scheduleTitle}>Weekly Automated Direct Deposit</Text>
           <Text style={styles.scheduleSubtitle}>
-            Earnings are automatically credited every Monday morning directly to your verified HDFC bank account.
+            Earnings are automatically credited every Monday morning directly to your verified bank account.
           </Text>
         </View>
       </ScrollView>
@@ -162,7 +156,7 @@ export default function RiderEarningsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#0F061F',
+    backgroundColor: '#F2F2F7',
   },
   header: {
     flexDirection: 'row',
@@ -170,77 +164,78 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 18,
     paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    backgroundColor: '#1E0E38',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   backBtn: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#F2F2F7',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
   },
   content: {
     padding: 18,
   },
   heroCard: {
-    backgroundColor: '#1E0E38',
-    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24, // squircle
     padding: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
     marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 2,
   },
   heroBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(52, 199, 89, 0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    marginBottom: 8,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    marginBottom: 12,
   },
   heroBadgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
-    color: '#34C759',
-    letterSpacing: 0.7,
+    color: '#047857',
+    letterSpacing: 0.5,
   },
   heroEarnings: {
-    fontSize: 42,
+    fontSize: 34,
     fontWeight: '900',
-    color: '#34C759',
+    color: '#111827',
+    letterSpacing: -1,
     fontVariant: ['tabular-nums'],
   },
   heroSubtitle: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.55)',
+    color: '#8E8E93',
     marginTop: 2,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   breakdownGrid: {
     flexDirection: 'row',
-    width: '100%',
+    justifyContent: 'space-between',
     paddingTop: 16,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    gap: 8,
+    borderTopWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   breakdownItem: {
     flex: 1,
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    padding: 10,
-    borderRadius: 12,
   },
   breakdownLabelRow: {
     flexDirection: 'row',
@@ -249,41 +244,47 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   breakdownLabel: {
-    fontSize: 10,
+    fontSize: 11,
+    color: '#8E8E93',
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
   },
   breakdownValue: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   kpiRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   kpiBox: {
     flex: 1,
-    backgroundColor: '#1E0E38',
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
     padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1,
   },
   kpiVal: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
-    color: '#FFFFFF',
-    marginVertical: 4,
+    color: '#111827',
+    marginTop: 6,
     fontVariant: ['tabular-nums'],
   },
   kpiLabel: {
     fontSize: 10,
+    color: '#8E8E93',
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.45)',
+    marginTop: 2,
   },
   ledgerSection: {
     marginBottom: 20,
@@ -291,9 +292,9 @@ const styles = StyleSheet.create({
   ledgerTitle: {
     fontSize: 11,
     fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.5)',
-    letterSpacing: 0.7,
-    marginBottom: 12,
+    color: '#8E8E93',
+    letterSpacing: 0.8,
+    marginBottom: 10,
   },
   tripsList: {
     gap: 10,
@@ -302,11 +303,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1E0E38',
-    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
     padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   tripLeft: {
     flexDirection: 'row',
@@ -315,12 +316,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tripCheckDot: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: 'rgba(52, 199, 89, 0.12)',
-    justifyContent: 'center',
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   tripCodeRow: {
     flexDirection: 'row',
@@ -329,64 +330,70 @@ const styles = StyleSheet.create({
   },
   tripCode: {
     fontSize: 13,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    fontFamily: 'monospace',
+    fontWeight: '700',
+    color: '#111827',
   },
   tripTime: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: '#8E8E93',
   },
   tripCustomer: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.75)',
+    color: '#4B5563',
     marginTop: 2,
   },
   tripDistance: {
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 11,
+    color: '#8E8E93',
     marginTop: 1,
   },
   tripRight: {
     alignItems: 'flex-end',
   },
   tripPayout: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#34C759',
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#047857',
     fontVariant: ['tabular-nums'],
   },
   tripSettled: {
     fontSize: 9,
     fontWeight: '800',
-    color: 'rgba(52, 199, 89, 0.8)',
-    letterSpacing: 0.6,
-    marginTop: 2,
+    color: '#047857',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginTop: 3,
   },
   emptyTrips: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
     padding: 24,
     alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   emptyTripsText: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 13,
+    color: '#8E8E93',
   },
   payoutScheduleCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
     padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   scheduleTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#111827',
     marginBottom: 4,
   },
   scheduleSubtitle: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#8E8E93',
     lineHeight: 16,
   },
 });

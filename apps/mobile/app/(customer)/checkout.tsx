@@ -12,11 +12,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useCartStore } from '../../store/useCartStore';
+import { useLocationStore } from '../../store/useLocationStore';
 import { supabase } from '../../src/lib/supabase';
 
 export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const { isServiceable } = useLocationStore();
 
   const {
     items,
@@ -34,7 +37,9 @@ export default function CheckoutScreen() {
 
   const handlePlaceOrder = async () => {
     setIsPlacingOrder(true);
-    const orderNum = `BLZ-${Math.floor(1000 + Math.random() * 9000)}`;
+    const JONIHA_HUB_ID = 'a0000000-0000-0000-0000-000000000001';
+    const randomPin = Math.floor(1000 + Math.random() * 9000).toString();
+    let generatedOrderId = `BLZ-${Math.floor(1000 + Math.random() * 9000)}`;
 
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -42,56 +47,70 @@ export default function CheckoutScreen() {
       // Attempt Supabase live insert
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const userId = session?.user?.id || '00000000-0000-0000-0000-000000000001';
+        let userId = session?.user?.id;
+
+        // Fallback: If in demo/unauthenticated bypass, fetch or link to any customer profile
+        if (!userId) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('role', 'customer')
+            .limit(1)
+            .maybeSingle();
+          userId = prof?.id || '00000000-0000-0000-0000-000000000001';
+        }
+
+        const addressPayload = selectedAddress || {
+          house_flat_no: 'Ward No. 4',
+          apartment_road_area: 'Shahbajpur, Joniha, Bindki',
+          city: 'Fatehpur',
+          postal_code: '212635',
+          recipient_name: 'Rahul Sharma',
+          recipient_phone: '+91 98765 43210',
+          landmark: 'Near Joniha Central Hub',
+        };
 
         const { data: orderData, error: orderError } = await supabase
           .from('orders')
           .insert({
-            order_number: orderNum,
+            store_id: JONIHA_HUB_ID,
             customer_id: userId,
-            dark_store_id: '00000000-0000-0000-0000-000000000001',
             status: 'placed',
-            items_total: itemsTotal,
+            total_amount: netPayable,
             delivery_fee: deliveryFee,
-            surge_fee: 0,
-            tip_amount: 0,
-            net_payable: netPayable,
+            platform_fee: platformFee,
             payment_method: paymentMethod,
             payment_status: paymentMethod === 'cod' ? 'pending' : 'paid',
-            delivery_address_snapshot: selectedAddress || {
-              address: 'Indiranagar 100ft Road, Bengaluru',
-            },
-            delivery_otp: String(Math.floor(1000 + Math.random() * 9000)),
+            delivery_address: addressPayload,
+            delivery_pin: randomPin,
           })
           .select('id')
           .single();
 
         if (orderData?.id) {
+          generatedOrderId = orderData.id;
           // Bulk insert line items
           const lineItems = items.map((item) => ({
             order_id: orderData.id,
             product_id: item.product.id.length === 36 ? item.product.id : '00000000-0000-0000-0000-000000000001',
-            product_name: item.product.name,
+            product_name_snapshot: item.product.name,
             unit_price: item.product.price,
             quantity: item.quantity,
-            total_price: item.product.price * item.quantity,
+            subtotal: item.product.price * item.quantity,
           }));
           await supabase.from('order_items').insert(lineItems);
         }
       } catch (dbErr) {
-        console.warn('Demo mode order persistence fallback:', dbErr);
+        console.warn('Live order persistence fallback:', dbErr);
       }
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       clearCart();
 
+      // Navigate immediately to live tracking radar
       router.replace({
-        pathname: '/(customer)/order-success',
-        params: {
-          orderNumber: orderNum,
-          total: netPayable.toString(),
-          itemsCount: items.length.toString(),
-        },
+        pathname: '/(customer)/track-order/[id]',
+        params: { id: generatedOrderId },
       } as any);
     } catch (err) {
       console.error('Order placement error:', err);
@@ -131,7 +150,7 @@ export default function CheckoutScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.slaTitle}>12-Minute Delivery Guarantee</Text>
             <Text style={styles.slaSubtitle}>
-              From dark store Koramangala Hub to your doorstep. Free if late by more than 5 mins.
+              From dark store Belzo Joniha Hub to your doorstep. Free if late by more than 5 mins.
             </Text>
           </View>
         </View>
@@ -276,25 +295,41 @@ export default function CheckoutScreen() {
           { paddingBottom: insets.bottom + 12 },
         ]}
       >
-        <View>
-          <Text style={styles.bottomPrice}>₹{netPayable}</Text>
-          <Text style={styles.bottomSub}>
-            {paymentMethod === 'cod' ? 'CASH ON DELIVERY' : 'PAY VIA UPI'}
-          </Text>
-        </View>
+        {!isServiceable && (
+          <View style={styles.unserviceableBanner}>
+            <Text style={styles.unserviceableBannerIcon}>⚠️</Text>
+            <Text style={styles.unserviceableBannerText}>
+              Delivery unavailable at your current location. Please select an address within Joniha 5 KM zone.
+            </Text>
+          </View>
+        )}
 
-        <TouchableOpacity
-          style={styles.placeOrderButton}
-          onPress={handlePlaceOrder}
-          disabled={isPlacingOrder}
-          activeOpacity={0.88}
-        >
-          {isPlacingOrder ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <Text style={styles.placeOrderText}>Place Order ➔</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.bottomDockRow}>
+          <View>
+            <Text style={styles.bottomPrice}>₹{netPayable}</Text>
+            <Text style={styles.bottomSub}>
+              {paymentMethod === 'cod' ? 'CASH ON DELIVERY' : 'PAY VIA UPI'}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.placeOrderButton,
+              (!isServiceable || isPlacingOrder) && styles.disabledPlaceOrderButton,
+            ]}
+            onPress={isServiceable ? handlePlaceOrder : undefined}
+            disabled={isPlacingOrder || !isServiceable}
+            activeOpacity={isServiceable ? 0.88 : 1}
+          >
+            {isPlacingOrder ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={[styles.placeOrderText, !isServiceable && styles.disabledPlaceOrderText]}>
+                {isServiceable ? 'Place Order ➔' : 'Unavailable'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -337,11 +372,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#2A134D',
+    backgroundColor: '#FFF4EB',
     padding: 16,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 94, 0, 0.3)',
+    borderWidth: 0.5,
+    borderColor: '#FED7AA',
   },
   slaIconCircle: {
     width: 38,
@@ -358,20 +393,25 @@ const styles = StyleSheet.create({
   slaTitle: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#C2410C',
     marginBottom: 2,
   },
   slaSubtitle: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.75)',
+    color: '#9A3412',
     lineHeight: 16,
   },
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24, // rounded-3xl
     padding: 18,
     borderWidth: 0.5,
     borderColor: 'rgba(0, 0, 0, 0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 1,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -382,7 +422,7 @@ const styles = StyleSheet.create({
   cardHeading: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#000000',
+    color: '#111827',
     letterSpacing: -0.2,
   },
   changeLink: {
@@ -403,16 +443,16 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     fontSize: 11,
     fontWeight: '800',
-    color: '#2A134D',
+    color: '#111827',
   },
   recipientName: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#000000',
+    color: '#111827',
   },
   addressDetail: {
     fontSize: 13,
-    color: '#636366',
+    color: '#6B7280',
     lineHeight: 18,
     marginTop: 2,
   },
@@ -508,21 +548,22 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   billLabel: {
-    fontSize: 13,
-    color: '#636366',
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   billVal: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#000000',
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   freeText: {
-    color: '#34C759',
+    color: '#047857',
     fontWeight: '800',
   },
   divider: {
-    height: 1,
+    height: 0.5,
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
     marginVertical: 10,
   },
@@ -534,13 +575,13 @@ const styles = StyleSheet.create({
   },
   grandTotalLabel: {
     fontSize: 16,
-    fontWeight: '900',
-    color: '#000000',
+    fontWeight: '800',
+    color: '#111827',
   },
   grandTotalVal: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    color: '#000000',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   bottomDock: {
@@ -548,23 +589,48 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
     borderTopWidth: 0.5,
     borderTopColor: 'rgba(0, 0, 0, 0.08)',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  unserviceableBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF2F2',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.25)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    gap: 8,
+  },
+  unserviceableBannerIcon: {
+    fontSize: 16,
+  },
+  unserviceableBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#D70015',
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  bottomDockRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 14,
+    width: '100%',
   },
   bottomPrice: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    color: '#000000',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   bottomSub: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
     color: '#8E8E93',
     letterSpacing: 0.5,
@@ -588,9 +654,17 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  disabledPlaceOrderButton: {
+    backgroundColor: '#E5E5EA',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   placeOrderText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
+  },
+  disabledPlaceOrderText: {
+    color: '#8E8E93',
   },
 });

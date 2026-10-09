@@ -24,7 +24,7 @@ export interface BottomCartPillProps {
 export const BottomCartPill: React.FC<BottomCartPillProps> = ({
   itemCount,
   totalPrice,
-  etaMinutes = 11,
+  etaMinutes = 12,
   onPress,
   bottomOffset = 20,
 }) => {
@@ -140,9 +140,9 @@ const styles = StyleSheet.create({
   capsule: {
     flex: 1,
     borderRadius: 29, // 58px / 2 = 29px capsule
-    backgroundColor: 'rgba(42, 19, 77, 0.92)',
+    backgroundColor: 'rgba(42, 19, 77, 0.95)',
     borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
+    borderColor: 'rgba(255, 255, 255, 0.22)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

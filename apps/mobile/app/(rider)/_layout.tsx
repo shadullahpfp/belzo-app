@@ -29,21 +29,21 @@ export default function RiderLayout() {
               id: newOrder.id,
               short_code: `BLZ-${newOrder.id.substring(0, 4).toUpperCase()}`,
               status: 'ready_for_pickup',
-              store_name: 'Belzo Central Hub 01',
-              store_address: '80 Feet Road, 4th Block Koramangala',
-              store_phone: '+91 98888 12345',
-              store_latitude: 12.9352,
-              store_longitude: 77.6245,
+              store_name: 'Belzo Joniha Central Hub 01',
+              store_address: 'Joniha Chauraha, Bindki Road, Fatehpur (212635)',
+              store_phone: '+91 98765 00001',
+              store_latitude: 26.0350,
+              store_longitude: 80.4650,
               customer_name: 'Customer',
-              customer_phone: '+91 98000 00000',
-              customer_address: newOrder.delivery_address || 'Koramangala, Bengaluru',
-              customer_latitude: 12.9388,
-              customer_longitude: 77.6289,
+              customer_phone: '+91 98765 11223',
+              customer_address: newOrder.delivery_address || 'Ward No. 4, Shahbajpur, Joniha, Bindki',
+              customer_latitude: 26.0365,
+              customer_longitude: 80.4672,
               delivery_notes: 'Leave with security if not available',
               delivery_pin: newOrder.delivery_pin || '1234',
               payout: 65,
-              distance_to_store: '1.2 km',
-              distance_to_customer: '2.4 km',
+              distance_to_store: '0.8 km',
+              distance_to_customer: '1.4 km',
               items: [
                 { name: 'Dairy & Grocery Basket', unit: '1 Pack', quantity: 1, checked: false }
               ]
@@ -63,7 +63,7 @@ export default function RiderLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: '#0F061F' },
+        contentStyle: { backgroundColor: '#F2F2F7' },
         animation: 'slide_from_right',
       }}
     >

@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Linking,
   Alert,
-  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -25,20 +24,18 @@ import {
   MapPin,
   Clock,
   CheckCircle2,
-  AlertTriangle,
-  ChevronRight,
 } from 'lucide-react-native';
 import { useRiderStore } from '../../store/useRiderStore';
 import { openTurnByTurnNavigation } from '../../utils/navigation';
-
-const { width } = Dimensions.get('window');
+import { DeliveryPinModal } from '../../components/rider/DeliveryPinModal';
 
 export default function ActiveOrderScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { currentOrder, toggleItemCheck, confirmPickup, verifyPinAndDeliver } = useRiderStore();
 
-  // 4-digit PIN input states
+  // 4-digit PIN input states & Modal State
+  const [showPinModal, setShowPinModal] = useState(false);
   const [pin, setPin] = useState(['', '', '', '']);
   const pinInputs = useRef<Array<TextInput | null>>([]);
   const [pinError, setPinError] = useState<string | null>(null);
@@ -47,8 +44,8 @@ export default function ActiveOrderScreen() {
   if (!currentOrder) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + 20, paddingHorizontal: 20 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={20} color="#FFFFFF" />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+          <ArrowLeft size={20} color="#111827" />
         </TouchableOpacity>
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyTitle}>No Active Delivery Trip</Text>
@@ -56,6 +53,7 @@ export default function ActiveOrderScreen() {
           <TouchableOpacity
             onPress={() => router.replace('/(rider)/dashboard')}
             style={styles.returnBtn}
+            activeOpacity={0.9}
           >
             <Text style={styles.returnBtnText}>Return to Console</Text>
           </TouchableOpacity>
@@ -106,7 +104,6 @@ export default function ActiveOrderScreen() {
       Haptics.selectionAsync();
     } catch {}
 
-    // Auto-advance to next input
     if (text && index < 3) {
       pinInputs.current[index + 1]?.focus();
     }
@@ -122,6 +119,9 @@ export default function ActiveOrderScreen() {
     const enteredPin = pin.join('');
     if (enteredPin.length < 4) {
       setPinError('Please enter the full 4-digit customer PIN');
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } catch {}
       return;
     }
 
@@ -130,33 +130,37 @@ export default function ActiveOrderScreen() {
     setIsSubmitting(false);
 
     if (success) {
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {}
       Alert.alert('Delivery Completed! 🎉', `₹${currentOrder.payout} credited to your shift earnings.`, [
         {
-          text: 'Great!',
+          text: 'Return to Console',
           onPress: () => router.replace('/(rider)/dashboard'),
         },
       ]);
     } else {
-      setPinError(`Incorrect PIN. (Hint for demo: ${currentOrder.delivery_pin})`);
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } catch {}
+      setPinError('Invalid PIN. Please ask customer for the 4-digit PIN on their screen.');
     }
   };
 
   return (
     <View style={styles.screen}>
-      {/* Sticky Header */}
+      {/* Top Header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <ArrowLeft size={20} color="#FFFFFF" />
+          <ArrowLeft size={20} color="#111827" />
         </TouchableOpacity>
-
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.headerTag}>DELIVERY DISPATCH CONSOLE</Text>
-          <Text style={styles.headerCode}>{currentOrder.short_code}</Text>
+          <Text style={styles.headerTag}>ACTIVE DISPATCH</Text>
+          <Text style={styles.headerCode}>#{currentOrder.short_code}</Text>
         </View>
-
         <View style={styles.slaBadge}>
-          <Clock size={13} color="#FF7A29" />
-          <Text style={styles.slaBadgeText}>10-MIN SLA</Text>
+          <Clock size={12} color="#C2410C" />
+          <Text style={styles.slaBadgeText}>12m SLA</Text>
         </View>
       </View>
 
@@ -164,34 +168,26 @@ export default function ActiveOrderScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Stage Progress Stepper */}
+        {/* Step Indicator */}
         <View style={styles.stepperContainer}>
           <View style={styles.stepIndicator}>
-            <View style={[styles.stepNumber, isPickupStage ? styles.stepNumberActive : styles.stepNumberDone]}>
-              {isPickupStage ? (
-                <Text style={styles.stepNumberText}>1</Text>
-              ) : (
-                <CheckCircle2 size={16} color="#FFFFFF" />
-              )}
+            <View style={[styles.stepNumber, !isPickupStage ? styles.stepNumberDone : styles.stepNumberActive]}>
+              <Text style={styles.stepNumberText}>1</Text>
             </View>
-            <Text style={[styles.stepLabel, isPickupStage && styles.stepLabelActive]}>
-              Store Hub Pickup
-            </Text>
+            <Text style={[styles.stepLabel, isPickupStage && styles.stepLabelActive]}>Store Hub</Text>
           </View>
 
-          <View style={[styles.stepConnector, !isPickupStage && styles.stepConnectorDone]} />
+          <View style={[styles.stepDivider, !isPickupStage && styles.stepDividerDone]} />
 
           <View style={styles.stepIndicator}>
             <View style={[styles.stepNumber, !isPickupStage ? styles.stepNumberActive : styles.stepNumberInactive]}>
               <Text style={styles.stepNumberText}>2</Text>
             </View>
-            <Text style={[styles.stepLabel, !isPickupStage && styles.stepLabelActive]}>
-              Customer Transit
-            </Text>
+            <Text style={[styles.stepLabel, !isPickupStage && styles.stepLabelActive]}>Customer Drop</Text>
           </View>
         </View>
 
-        {/* STAGE 1: Store Pickup Card */}
+        {/* STAGE 1: Store Hub Pickup Card */}
         {isPickupStage ? (
           <View style={styles.stageCard}>
             <View style={styles.stageCardHeader}>
@@ -206,12 +202,12 @@ export default function ActiveOrderScreen() {
 
             <Text style={styles.addressText}>{currentOrder.store_address}</Text>
 
-            {/* Quick Actions for Hub */}
+            {/* Quick Actions: Navigation in #007AFF & Call in bg-gray-100 */}
             <View style={styles.hubActionRow}>
               <TouchableOpacity
                 onPress={handleOpenStoreNav}
                 style={styles.navActionBtn}
-                activeOpacity={0.8}
+                activeOpacity={0.88}
               >
                 <Navigation size={16} color="#FFFFFF" />
                 <Text style={styles.navActionBtnText}>Navigate to Hub</Text>
@@ -220,9 +216,9 @@ export default function ActiveOrderScreen() {
               <TouchableOpacity
                 onPress={() => handleCall(currentOrder.store_phone)}
                 style={styles.callHubBtn}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <Phone size={16} color="#FFFFFF" />
+                <Phone size={16} color="#111827" />
                 <Text style={styles.callHubBtnText}>Call Hub</Text>
               </TouchableOpacity>
             </View>
@@ -246,9 +242,9 @@ export default function ActiveOrderScreen() {
                     activeOpacity={0.7}
                   >
                     {item.checked ? (
-                      <CheckSquare size={20} color="#34C759" />
+                      <CheckSquare size={20} color="#047857" />
                     ) : (
-                      <Square size={20} color="rgba(255,255,255,0.4)" />
+                      <Square size={20} color="#9CA3AF" />
                     )}
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={[styles.itemText, item.checked && styles.itemTextChecked]}>
@@ -271,7 +267,7 @@ export default function ActiveOrderScreen() {
                 styles.primaryCtaBtn,
                 !allItemsChecked && styles.primaryCtaBtnDisabled,
               ]}
-              activeOpacity={0.85}
+              activeOpacity={0.9}
             >
               <CheckCircle2 size={18} color="#FFFFFF" />
               <Text style={styles.primaryCtaBtnText}>
@@ -284,7 +280,7 @@ export default function ActiveOrderScreen() {
           <View style={styles.stageCard}>
             <View style={styles.stageCardHeader}>
               <View style={styles.stageIconBgCustomer}>
-                <User size={20} color="#34C759" />
+                <User size={20} color="#047857" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.stageTitle}>Deliver to Customer</Text>
@@ -293,7 +289,7 @@ export default function ActiveOrderScreen() {
             </View>
 
             <View style={styles.customerAddressBox}>
-              <MapPin size={16} color="#34C759" style={{ marginTop: 2 }} />
+              <MapPin size={16} color="#047857" style={{ marginTop: 2 }} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.customerAddressText}>{currentOrder.customer_address}</Text>
                 {currentOrder.delivery_notes ? (
@@ -308,8 +304,8 @@ export default function ActiveOrderScreen() {
             <View style={styles.hubActionRow}>
               <TouchableOpacity
                 onPress={handleOpenCustomerNav}
-                style={styles.navActionBtnCustomer}
-                activeOpacity={0.8}
+                style={styles.navActionBtn}
+                activeOpacity={0.88}
               >
                 <Navigation size={16} color="#FFFFFF" />
                 <Text style={styles.navActionBtnText}>Turn-by-Turn GPS</Text>
@@ -318,9 +314,9 @@ export default function ActiveOrderScreen() {
               <TouchableOpacity
                 onPress={() => handleCall(currentOrder.customer_phone)}
                 style={styles.callHubBtn}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <Phone size={16} color="#FFFFFF" />
+                <Phone size={16} color="#111827" />
                 <Text style={styles.callHubBtnText}>Call Customer</Text>
               </TouchableOpacity>
             </View>
@@ -328,14 +324,14 @@ export default function ActiveOrderScreen() {
             {/* STAGE 3: Secure Delivery PIN Verification */}
             <View style={styles.pinSection}>
               <View style={styles.pinHeader}>
-                <ShieldCheck size={18} color="#FF7A29" />
+                <ShieldCheck size={18} color="#FF5E00" />
                 <Text style={styles.pinSectionTitle}>SECURE DELIVERY PIN</Text>
               </View>
               <Text style={styles.pinSectionSubtitle}>
-                Ask the customer for their 4-digit delivery PIN (or last 4 digits of phone) to complete handoff.
+                Ask customer for 4-digit PIN to confirm handoff and receive credit.
               </Text>
 
-              {/* 4 Square Input Boxes */}
+              {/* 4 Separate Tabular Input Boxes */}
               <View style={styles.pinInputsRow}>
                 {pin.map((digit, index) => (
                   <TextInput
@@ -359,20 +355,46 @@ export default function ActiveOrderScreen() {
 
               {pinError && <Text style={styles.pinErrorText}>{pinError}</Text>}
 
+              {/* Verify & Complete CTA */}
               <TouchableOpacity
                 onPress={handleVerifyDelivery}
-                disabled={isSubmitting}
-                style={styles.verifyDeliveryBtn}
+                disabled={isSubmitting || pin.join('').length < 4}
+                style={[
+                  styles.primaryCtaBtn,
+                  pin.join('').length < 4 && styles.primaryCtaBtnDisabled,
+                ]}
+                activeOpacity={0.9}
+              >
+                <CheckCircle2 size={18} color="#FFFFFF" />
+                <Text style={styles.primaryCtaBtnText}>
+                  {isSubmitting ? 'Verifying...' : 'Complete Delivery & Collect Payout'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Fast PIN Modal Trigger Button */}
+              <TouchableOpacity
+                onPress={() => setShowPinModal(true)}
+                style={styles.openModalTriggerBtn}
                 activeOpacity={0.85}
               >
-                <Text style={styles.verifyDeliveryBtnText}>
-                  {isSubmitting ? 'Verifying...' : 'Verify PIN & Complete Delivery'}
-                </Text>
+                <ShieldCheck size={16} color="#FF5E00" />
+                <Text style={styles.openModalTriggerText}>Launch Handshake PIN Sheet</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
       </ScrollView>
+
+      {/* Apple Squircle Delivery PIN Modal */}
+      <DeliveryPinModal
+        visible={showPinModal}
+        order={currentOrder}
+        onClose={() => setShowPinModal(false)}
+        onSuccess={() => {
+          setShowPinModal(false);
+          router.replace('/(rider)/dashboard');
+        }}
+      />
     </View>
   );
 }
@@ -380,7 +402,7 @@ export default function ActiveOrderScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#0F061F',
+    backgroundColor: '#F2F2F7',
   },
   header: {
     flexDirection: 'row',
@@ -388,15 +410,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 18,
     paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    backgroundColor: '#1E0E38',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   backBtn: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#F2F2F7',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -406,28 +428,30 @@ const styles = StyleSheet.create({
   headerTag: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#FF7A29',
+    color: '#FF5E00',
     letterSpacing: 0.6,
   },
   headerCode: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#FFFFFF',
-    fontFamily: 'monospace',
+    color: '#111827',
+    fontVariant: ['tabular-nums'],
   },
   slaBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255, 94, 0, 0.15)',
+    backgroundColor: '#FFF7ED',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+    borderWidth: 0.5,
+    borderColor: '#FED7AA',
   },
   slaBadgeText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#FF7A29',
+    color: '#C2410C',
   },
   content: {
     padding: 18,
@@ -442,9 +466,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   stepNumber: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 4,
@@ -453,10 +477,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF5E00',
   },
   stepNumberDone: {
-    backgroundColor: '#34C759',
+    backgroundColor: '#047857',
   },
   stepNumberInactive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: '#D1D5DB',
   },
   stepNumberText: {
     fontSize: 12,
@@ -465,29 +489,34 @@ const styles = StyleSheet.create({
   },
   stepLabel: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#8E8E93',
     fontWeight: '600',
   },
   stepLabelActive: {
-    color: '#FFFFFF',
+    color: '#111827',
     fontWeight: '700',
   },
-  stepConnector: {
+  stepDivider: {
     width: 60,
     height: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: '#E5E7EB',
     marginHorizontal: 12,
-    marginBottom: 18,
+    marginBottom: 16,
   },
-  stepConnectorDone: {
-    backgroundColor: '#34C759',
+  stepDividerDone: {
+    backgroundColor: '#047857',
   },
   stageCard: {
-    backgroundColor: '#1E0E38',
-    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24, // rounded-3xl squircle
     padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 2,
   },
   stageCardHeader: {
     flexDirection: 'row',
@@ -499,119 +528,101 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: 'rgba(255, 94, 0, 0.15)',
-    justifyContent: 'center',
+    backgroundColor: '#FFF7ED',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   stageIconBgCustomer: {
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: 'rgba(52, 199, 89, 0.15)',
-    justifyContent: 'center',
+    backgroundColor: '#ECFDF5',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   stageTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
   },
   stageSubtitle: {
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.65)',
+    color: '#6B7280',
     marginTop: 2,
   },
   addressText: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.75)',
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    padding: 12,
-    borderRadius: 12,
+    fontSize: 13,
+    color: '#374151',
     lineHeight: 18,
     marginBottom: 16,
   },
   customerAddressBox: {
     flexDirection: 'row',
-    gap: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    gap: 8,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 14,
     padding: 12,
-    borderRadius: 12,
-    marginBottom: 16,
+    marginVertical: 14,
   },
   customerAddressText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#111827',
     lineHeight: 18,
+    fontWeight: '500',
   },
   deliveryNotesText: {
-    fontSize: 11,
-    color: '#FAA307',
-    marginTop: 6,
+    fontSize: 12,
+    color: '#D97706',
+    marginTop: 4,
     fontStyle: 'italic',
   },
   hubActionRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 22,
+    marginBottom: 20,
   },
   navActionBtn: {
-    flex: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#FF5E00',
-    paddingVertical: 13,
-    borderRadius: 14,
-  },
-  navActionBtnCustomer: {
-    flex: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#34C759',
-    paddingVertical: 13,
-    borderRadius: 14,
-  },
-  navActionBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  callHubBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    paddingVertical: 13,
+    backgroundColor: '#007AFF', // Apple Maps #007AFF capsule
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  navActionBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  callHubBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#F3F4F6', // bg-gray-100 text-gray-900
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: 14,
   },
   callHubBtnText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#111827',
   },
   checklistSection: {
     marginBottom: 20,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    paddingTop: 16,
   },
   checklistTitle: {
     fontSize: 11,
     fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.5)',
-    letterSpacing: 0.6,
+    color: '#8E8E93',
+    letterSpacing: 0.7,
   },
   checklistSubtitle: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 12,
+    color: '#6B7280',
     marginTop: 2,
     marginBottom: 12,
   },
@@ -621,29 +632,28 @@ const styles = StyleSheet.create({
   checklistItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 14,
     padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   checklistItemChecked: {
-    backgroundColor: 'rgba(52, 199, 89, 0.08)',
-    borderColor: 'rgba(52, 199, 89, 0.25)',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
   },
   itemText: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: '600',
+    color: '#111827',
   },
   itemTextChecked: {
-    textDecorationLine: 'line-through',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: '#047857',
   },
   itemSubtext: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.4)',
-    marginTop: 1,
+    color: '#8E8E93',
+    marginTop: 2,
   },
   primaryCtaBtn: {
     flexDirection: 'row',
@@ -653,20 +663,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF5E00',
     borderRadius: 16,
     paddingVertical: 15,
+    shadowColor: '#FF5E00',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 3,
   },
   primaryCtaBtnDisabled: {
-    opacity: 0.45,
+    backgroundColor: '#D1D5DB',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   primaryCtaBtnText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   pinSection: {
-    borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    paddingTop: 20,
-    marginTop: 8,
+    marginTop: 10,
+    paddingTop: 16,
+    borderTopWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
   },
   pinHeader: {
     flexDirection: 'row',
@@ -677,91 +694,87 @@ const styles = StyleSheet.create({
   pinSectionTitle: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#FF7A29',
-    letterSpacing: 0.7,
+    color: '#FF5E00',
+    letterSpacing: 0.8,
   },
   pinSectionSubtitle: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.5)',
-    lineHeight: 16,
+    fontSize: 12,
+    color: '#8E8E93',
     marginBottom: 16,
+    lineHeight: 16,
   },
   pinInputsRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
-    marginBottom: 14,
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
   pinBox: {
-    width: 54,
-    height: 58,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    width: 58,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: '#F9FAFB',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '900',
+    borderColor: '#E5E7EB',
     textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   pinBoxFilled: {
-    borderColor: '#34C759',
-    backgroundColor: 'rgba(52, 199, 89, 0.08)',
+    borderColor: '#FF5E00',
+    backgroundColor: '#FFF7ED',
   },
   pinBoxError: {
-    borderColor: '#FF3B30',
-    backgroundColor: 'rgba(255, 59, 48, 0.08)',
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
   },
   pinErrorText: {
     fontSize: 12,
-    color: '#FF3B30',
+    color: '#DC2626',
     textAlign: 'center',
     marginBottom: 12,
     fontWeight: '600',
   },
-  verifyDeliveryBtn: {
-    backgroundColor: '#34C759',
-    borderRadius: 16,
-    paddingVertical: 15,
+  openModalTriggerBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#34C759',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 10,
   },
-  verifyDeliveryBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FFFFFF',
+  openModalTriggerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FF5E00',
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 80,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
     marginBottom: 6,
   },
   emptySubtitle: {
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#8E8E93',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   returnBtn: {
     backgroundColor: '#FF5E00',
+    paddingHorizontal: 20,
     paddingVertical: 12,
-    paddingHorizontal: 24,
     borderRadius: 14,
   },
   returnBtnText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
   },

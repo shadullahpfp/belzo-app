@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
       } else if (createError && createError.message.includes('already registered')) {
         // Update user password to bridgePassword so we can issue session
         const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
-        const found = listData?.users.find((u) => u.email === internalEmail || u.phone === cleanPhone);
+        const found = listData?.users.find((u: any) => u.email === internalEmail || u.phone === cleanPhone);
         if (found) {
           authUser = found;
           supabaseUserId = found.id;

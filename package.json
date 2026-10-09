@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "mobile": "cd apps/mobile && npx expo start",
     "dev:mobile": "npm run start --workspace=apps/mobile",
     "dev:admin": "npm run dev --workspace=apps/admin",
     "seed": "npx ts-node packages/supabase/scripts/seed.ts",

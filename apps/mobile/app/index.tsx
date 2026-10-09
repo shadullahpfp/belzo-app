@@ -21,12 +21,14 @@ export default function IndexPage() {
 
   return (
     <View style={styles.container}>
-      {/* Official Belzo Brand Hero Logo */}
-      <Image
-        source={require('../assets/logo.png')}
-        style={{ width: 140, height: 140, resizeMode: 'contain' }}
-        className="mb-4"
-      />
+      {/* Official Belzo Brand Hero Logo in Apple Squircle */}
+      <View style={styles.logoSquircle}>
+        <Image
+          source={require('../assets/logo.png')}
+          style={styles.logoImage}
+          resizeMode="cover"
+        />
+      </View>
       <Text style={styles.brandTitle}>Belzo</Text>
       <Text style={styles.brandTagline}>Lightning Hyperlocal Delivery</Text>
       <View style={styles.loader}>
@@ -43,6 +45,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  logoSquircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 26,
+    overflow: 'hidden',
+    backgroundColor: '#FFE6D5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
   },
   brandTitle: {
     fontSize: 32,

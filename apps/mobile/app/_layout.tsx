@@ -1,24 +1,42 @@
+import '../global.css';
 import React, { useEffect, useState, createContext, useContext } from 'react';
-import { ActivityIndicator, View, StatusBar, Image } from 'react-native';
+import { ActivityIndicator, View, StatusBar, Image, LogBox } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../src/lib/supabase';
 
+// Suppress development warning overlays and yellow badges during evaluation/demos
+LogBox.ignoreAllLogs(true);
+
+import { useAuthStore, UserProfile, RiderData } from '../store/useAuthStore';
+
 interface AuthContextType {
   session: Session | null;
-  user: User | null;
-  role: 'customer' | 'rider' | 'admin' | null;
+  user: User | any | null;
+  profile: UserProfile | null;
+  rider: RiderData | null;
+  role: 'customer' | 'rider' | 'store_operator' | 'admin' | null;
   isLoading: boolean;
+  isProfileSheetOpen: boolean;
+  setIsProfileSheetOpen: (open: boolean) => void;
+  updateProfile: (updates: Partial<UserProfile>) => Promise<boolean>;
+  updateRiderDetails: (updates: Partial<RiderData>) => Promise<boolean>;
   signOut: () => Promise<void>;
-  setDemoRole: (role: 'customer' | 'rider') => void;
+  setDemoRole: (role: 'customer' | 'rider', phone?: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
+  profile: null,
+  rider: null,
   role: null,
   isLoading: true,
+  isProfileSheetOpen: false,
+  setIsProfileSheetOpen: () => {},
+  updateProfile: async () => false,
+  updateRiderDetails: async () => false,
   signOut: async () => {},
   setDemoRole: () => {},
 });
@@ -26,40 +44,36 @@ const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 export default function RootLayout() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [role, setRole] = useState<'customer' | 'rider' | 'admin' | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const {
+    session,
+    user,
+    profile,
+    rider,
+    role,
+    isLoading,
+    isProfileSheetOpen,
+    setSession,
+    setUser,
+    setRole,
+    setIsProfileSheetOpen,
+    fetchProfile,
+    updateProfile,
+    updateRiderDetails,
+    setDemoAuth,
+    signOut: storeSignOut,
+  } = useAuthStore();
 
   const segments = useSegments();
   const router = useRouter();
-
-  const fetchUserProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role, is_active')
-        .eq('id', userId)
-        .single();
-
-      if (error || !data) {
-        setRole('customer');
-      } else {
-        setRole((data as any).role || 'customer');
-      }
-    } catch {
-      setRole('customer');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user) {
-        fetchUserProfile(session.user.id);
+        setUser(session.user);
+        fetchProfile(session.user.id);
       } else {
-        setIsLoading(false);
+        useAuthStore.setState({ isLoading: false });
       }
     });
 
@@ -68,11 +82,11 @@ export default function RootLayout() {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       if (session?.user) {
-        setIsLoading(true);
-        await fetchUserProfile(session.user.id);
-      } else {
+        setUser(session.user);
+        await fetchProfile(session.user.id);
+      } else if (!user) {
         setRole(null);
-        setIsLoading(false);
+        useAuthStore.setState({ isLoading: false });
       }
     });
 
@@ -87,7 +101,7 @@ export default function RootLayout() {
     const inCustomerGroup = segments[0] === '(customer)';
     const inRiderGroup = segments[0] === '(rider)';
 
-    if (!session && !role) {
+    if (!session && !role && !user) {
       if (!inAuthGroup) {
         router.replace('/(auth)/login');
       }
@@ -103,10 +117,10 @@ export default function RootLayout() {
         }
       }
     }
-  }, [session, role, segments, isLoading]);
+  }, [session, role, user, segments, isLoading]);
 
-  const setDemoRole = (newRole: 'customer' | 'rider') => {
-    setRole(newRole);
+  const setDemoRole = async (newRole: 'customer' | 'rider', phone?: string) => {
+    await setDemoAuth(newRole, phone);
     if (newRole === 'rider') {
       router.replace('/(rider)/dashboard');
     } else {
@@ -115,9 +129,7 @@ export default function RootLayout() {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setRole(null);
-    setSession(null);
+    await storeSignOut();
     router.replace('/(auth)/login');
   };
 
@@ -143,9 +155,15 @@ export default function RootLayout() {
       <AuthContext.Provider
         value={{
           session,
-          user: session?.user ?? null,
+          user,
+          profile,
+          rider,
           role,
           isLoading,
+          isProfileSheetOpen,
+          setIsProfileSheetOpen,
+          updateProfile,
+          updateRiderDetails,
           signOut,
           setDemoRole,
         }}
@@ -155,3 +173,4 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+

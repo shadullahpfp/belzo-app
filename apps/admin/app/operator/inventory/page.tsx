@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import {
   Search,
@@ -8,20 +8,17 @@ import {
   Edit2,
   Check,
   X,
-  ToggleLeft,
-  ToggleRight,
-  TrendingUp,
-  AlertCircle,
-  Sparkles,
-  Save,
   Package,
+  RefreshCw,
+  AlertCircle,
+  Tag,
 } from 'lucide-react';
-import { playDispatchChime } from '../../../lib/sound';
-import { supabase } from '../../../lib/supabase';
+import { supabase, JONIHA_HUB_ID } from '../../../lib/supabase';
 
 interface InventoryItem {
   id: string;
   name: string;
+  category_id?: string;
   category: string;
   unit: string;
   price: number;
@@ -33,115 +30,148 @@ interface InventoryItem {
   sku: string;
 }
 
-const INITIAL_INVENTORY: InventoryItem[] = [
-  {
-    id: 'prod-1',
-    name: 'Amul Taaza Fresh Toned Milk',
-    category: 'Grocery',
-    unit: '500 ml',
-    price: 34,
-    discount_price: 32,
-    mrp: 38,
-    stock: 24,
-    is_available: true,
-    sku: 'SKU-DAIRY-01',
-    image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=200&q=80',
-  },
-  {
-    id: 'prod-2',
-    name: 'Harvest Gold 100% Atta Brown Bread',
-    category: 'Grocery',
-    unit: '400 g',
-    price: 49,
-    mrp: 55,
-    stock: 12,
-    is_available: true,
-    sku: 'SKU-BAKE-02',
-    image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=200&q=80',
-  },
-  {
-    id: 'prod-3',
-    name: 'Farm Fresh Organic Hass Avocado',
-    category: 'Fruits & Veggies',
-    unit: '2 pcs',
-    price: 189,
-    mrp: 240,
-    stock: 0,
-    is_available: false,
-    sku: 'SKU-VEG-03',
-    image: 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?auto=format&fit=crop&w=200&q=80',
-  },
-  {
-    id: 'prod-4',
-    name: 'Belzo Farm Red Ripe Tomatoes',
-    category: 'Fruits & Veggies',
-    unit: '1 kg',
-    price: 38,
-    mrp: 50,
-    stock: 35,
-    is_available: true,
-    sku: 'SKU-VEG-04',
-    image: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=200&q=80',
-  },
-  {
-    id: 'prod-5',
-    name: 'Croissant Butter Puff (Pack of 2)',
-    category: 'Food',
-    unit: '200 g',
-    price: 120,
-    mrp: 150,
-    stock: 4,
-    is_available: true,
-    sku: 'SKU-FOOD-05',
-    image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=200&q=80',
-  },
-  {
-    id: 'prod-6',
-    name: 'Electrolyte Hydration Powder (Lime)',
-    category: 'Pharma',
-    unit: '5 sachets',
-    price: 99,
-    mrp: 125,
-    stock: 18,
-    is_available: true,
-    sku: 'SKU-PHARM-06',
-    image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=200&q=80',
-  },
-  {
-    id: 'prod-7',
-    name: 'Type-C Fast Braided Charging Cable',
-    category: 'Electronics',
-    unit: '1.2 m',
-    price: 299,
-    mrp: 499,
-    stock: 9,
-    is_available: true,
-    sku: 'SKU-ELEC-07',
-    image: 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=200&q=80',
-  },
-];
+interface CategoryOption {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 export default function InventoryPricingPage() {
-  const [items, setItems] = useState<InventoryItem[]>(INITIAL_INVENTORY);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [categoriesList, setCategoriesList] = useState<CategoryOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedCat, setSelectedCat] = useState('All');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Inline editing state: itemId -> { price: string, discount_price: string }
+  // Inline editing state: itemId -> price string
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState<string>('');
   const [editDiscountPrice, setEditDiscountPrice] = useState<string>('');
 
   // Quick Add Drawer State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newCat, setNewCat] = useState('Grocery');
+  const [newCatId, setNewCatId] = useState('');
   const [newUnit, setNewUnit] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [newMrp, setNewMrp] = useState('');
-  const [newStock, setNewStock] = useState('15');
+  const [newStock, setNewStock] = useState('25');
   const [newImageUrl, setNewImageUrl] = useState('');
 
-  const categories = ['All', 'Grocery', 'Fruits & Veggies', 'Food', 'Pharma', 'Electronics'];
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((cur) => (cur === msg ? null : cur));
+    }, 2800);
+  };
+
+  // 1. Fetch live categories & products from Supabase
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      // Fetch Categories
+      const { data: catsData } = await supabase
+        .from('categories')
+        .select('id, name, slug')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      const cats: CategoryOption[] = catsData || [];
+      setCategoriesList(cats);
+      if (cats.length > 0 && !newCatId) {
+        setNewCatId(cats[0].id);
+      }
+
+      // Fetch Products for Joniha Hub
+      const { data: prodsData, error: prodsErr } = await supabase
+        .from('products')
+        .select('*, categories (name)')
+        .eq('store_id', JONIHA_HUB_ID)
+        .order('name', { ascending: true });
+
+      if (prodsErr) {
+        // Fallback if joined relation name differs or store_id is null
+        const { data: fallbackData } = await supabase
+          .from('products')
+          .select('*')
+          .order('name', { ascending: true });
+
+        if (fallbackData) {
+          const mapped: InventoryItem[] = fallbackData.map((p: any) => {
+            const catObj = cats.find((c) => c.id === p.category_id);
+            return {
+              id: p.id,
+              name: p.name,
+              category_id: p.category_id,
+              category: catObj ? catObj.name : 'General',
+              unit: p.unit || '1 pc',
+              price: Number(p.price) || 0,
+              discount_price: p.discount_price ? Number(p.discount_price) : undefined,
+              mrp: Number(p.price) ? Math.round(Number(p.price) * 1.2) : 0,
+              stock: Number(p.stock_quantity) || 0,
+              is_available: p.is_available ?? true,
+              image:
+                p.image_url ||
+                (p.media_urls && p.media_urls[0]) ||
+                'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=200&q=80',
+              sku: `SKU-${p.id.slice(0, 6).toUpperCase()}`,
+            };
+          });
+          setItems(mapped);
+        } else {
+          setItems([]);
+        }
+      } else if (prodsData) {
+        const mapped: InventoryItem[] = prodsData.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          category_id: p.category_id,
+          category: p.categories?.name || 'General',
+          unit: p.unit || '1 pc',
+          price: Number(p.price) || 0,
+          discount_price: p.discount_price ? Number(p.discount_price) : undefined,
+          mrp: Number(p.price) ? Math.round(Number(p.price) * 1.2) : 0,
+          stock: Number(p.stock_quantity) || 0,
+          is_available: p.is_available ?? true,
+          image:
+            p.image_url ||
+            'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=200&q=80',
+          sku: `SKU-${p.id.slice(0, 6).toUpperCase()}`,
+        }));
+        setItems(mapped);
+      }
+    } catch (err) {
+      console.warn('[Operator Inventory] Error fetching products:', err);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [newCatId]);
+
+  useEffect(() => {
+    loadData();
+
+    // Subscribe to products table realtime updates
+    const channel = supabase
+      .channel('operator-products-stream')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadData]);
+
+  const categories = ['All', ...categoriesList.map((c) => c.name)];
 
   const filteredItems = items.filter((item) => {
     const matchesCat = selectedCat === 'All' || item.category === selectedCat;
@@ -154,29 +184,38 @@ export default function InventoryPricingPage() {
     return matchesCat && matchesSearch;
   });
 
-  // Toggle In Stock / Out of Stock
+  // Single-Click Stock Switch: In Stock vs Sold Out -> Live Supabase UPDATE
   const handleToggleStock = async (itemId: string) => {
     const currentItem = items.find((i) => i.id === itemId);
-    const nextAvailability = currentItem ? !currentItem.is_available : false;
+    if (!currentItem) return;
+    const nextAvailability = !currentItem.is_available;
 
+    // Optimistic local state update
     setItems((prev) =>
       prev.map((i) =>
         i.id === itemId
           ? {
               ...i,
-              is_available: !i.is_available,
-              stock: !i.is_available ? Math.max(i.stock, 5) : 0,
+              is_available: nextAvailability,
+              stock: nextAvailability ? Math.max(i.stock, 5) : 0,
             }
           : i
       )
     );
 
+    showToast(nextAvailability ? `Marked "${currentItem.name}" as In Stock` : `Marked "${currentItem.name}" as Sold Out`);
+
     try {
-      if (itemId.length === 36) {
-        await supabase
-          .from('products')
-          .update({ is_available: nextAvailability })
-          .eq('id', itemId);
+      const { error } = await supabase
+        .from('products')
+        .update({
+          is_available: nextAvailability,
+          stock_quantity: nextAvailability ? Math.max(currentItem.stock, 5) : 0,
+        })
+        .eq('id', itemId);
+
+      if (error) {
+        console.warn('Supabase stock toggle error:', error.message);
       }
     } catch (err) {
       console.warn('Supabase stock update error:', err);
@@ -192,7 +231,7 @@ export default function InventoryPricingPage() {
     );
   };
 
-  // Save inline edit
+  // Save inline edit -> commits update to Supabase products
   const saveEditing = async (itemId: string) => {
     const p = parseFloat(editPrice);
     const dp = editDiscountPrice ? parseFloat(editDiscountPrice) : undefined;
@@ -211,14 +250,18 @@ export default function InventoryPricingPage() {
       );
 
       try {
-        if (itemId.length === 36) {
-          await supabase
-            .from('products')
-            .update({
-              price: p,
-              discount_price: dp && !isNaN(dp) ? dp : null,
-            })
-            .eq('id', itemId);
+        const { error } = await supabase
+          .from('products')
+          .update({
+            price: p,
+            discount_price: dp && !isNaN(dp) ? dp : null,
+          })
+          .eq('id', itemId);
+
+        if (error) {
+          console.warn('Supabase price update error:', error.message);
+        } else {
+          showToast('Price updated successfully! 🏷️');
         }
       } catch (err) {
         console.warn('Supabase price update error:', err);
@@ -227,63 +270,86 @@ export default function InventoryPricingPage() {
     setEditingId(null);
   };
 
-  // Quick Add Product
-  const handleQuickAddProduct = (e: React.FormEvent) => {
+  // Quick Add Product -> inserts real row into Supabase products table
+  const handleQuickAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim() || !newPrice.trim() || !newUnit.trim()) {
-      alert('Please enter Name, Unit, and Price.');
+      alert('Please fill in Product Name, Unit, and Price.');
       return;
     }
 
     const p = parseFloat(newPrice);
-    const m = newMrp ? parseFloat(newMrp) : Math.round(p * 1.2);
-    const stk = parseInt(newStock) || 10;
+    const m = newMrp ? parseFloat(newMrp) : undefined;
+    const stk = parseInt(newStock) || 25;
+    const resolvedCatId = newCatId || (categoriesList[0] ? categoriesList[0].id : null);
 
-    const newItem: InventoryItem = {
-      id: `prod-${Date.now()}`,
-      name: newName.trim(),
-      category: newCat,
-      unit: newUnit.trim(),
-      price: p,
-      mrp: m,
-      stock: stk,
-      is_available: stk > 0,
-      sku: `SKU-MANUAL-${Math.floor(100 + Math.random() * 900)}`,
-      image:
-        newImageUrl.trim() ||
-        'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=200&q=80',
-    };
+    setIsSubmitting(true);
+    try {
+      const payload: any = {
+        store_id: JONIHA_HUB_ID,
+        category_id: resolvedCatId,
+        name: newName.trim(),
+        unit: newUnit.trim(),
+        price: p,
+        discount_price: m ? p : null,
+        stock_quantity: stk,
+        is_available: stk > 0,
+        image_url:
+          newImageUrl.trim() ||
+          'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80',
+        description: `Fresh stock available at Joniha Central Hub. Unit: ${newUnit.trim()}.`,
+      };
 
-    setItems([newItem, ...items]);
-    setShowAddModal(false);
-    playDispatchChime();
+      const { data, error } = await supabase
+        .from('products')
+        .insert([payload])
+        .select()
+        .single();
 
-    // Reset Form
-    setNewName('');
-    setNewUnit('');
-    setNewPrice('');
-    setNewMrp('');
-    setNewStock('15');
-    setNewImageUrl('');
+      if (error) {
+        alert(`Error adding product: ${error.message}`);
+      } else {
+        showToast(`Added "${newName.trim()}" to Joniha Catalog! ✨`);
+        setShowAddModal(false);
+        setNewName('');
+        setNewUnit('');
+        setNewPrice('');
+        setNewMrp('');
+        setNewImageUrl('');
+        loadData();
+      }
+    } catch (err: any) {
+      alert(`Unexpected error: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="space-y-6">
       {/* Header with Search & Quick Add CTA */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-black/5 rounded-3xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
         <div>
-          <h2 className="text-xl font-black text-white tracking-tight">
-            Fast Inventory & Real-Time Price Controller
+          <h2 className="text-xl font-extrabold text-gray-950 tracking-tight">
+            Catalog & Price Controller
           </h2>
-          <p className="text-xs text-white/60 mt-0.5">
-            Instant click-to-edit pricing, live stock toggles, and emergency product creation.
+          <p className="text-xs text-gray-500 mt-0.5">
+            Joniha Central Hub 01 • Instant stock switches, inline price edits, and master inventory.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
+            onClick={() => loadData()}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-all"
+            title="Refresh catalog"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span>Sync</span>
+          </button>
+          <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-black shadow-lg transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all active:scale-[0.97]"
           >
             <Plus className="w-4 h-4" />
             Quick Add Product
@@ -294,26 +360,26 @@ export default function InventoryPricingPage() {
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-white/40 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by title, SKU, or category..."
-            className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-white/40 focus:outline-none focus:border-[#FF5E00]"
+            placeholder="Search catalog, SKU, category..."
+            className="w-full bg-white border border-black/5 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#FF5E00] shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
           />
         </div>
 
         {/* Category Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1">
           {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setSelectedCat(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border ${
                 selectedCat === cat
-                  ? 'bg-[#FF5E00] text-white'
-                  : 'bg-white/5 text-white/60 hover:text-white border border-white/5'
+                  ? 'bg-gray-950 text-white border-gray-950 shadow-sm'
+                  : 'bg-white text-gray-600 border-black/5 hover:bg-gray-50'
               }`}
             >
               {cat}
@@ -322,181 +388,199 @@ export default function InventoryPricingPage() {
         </div>
       </div>
 
-      {/* Realtime Inventory Table */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-xl">
+      {/* Inventory Table Container */}
+      <div className="bg-white border border-black/5 rounded-3xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-black/30 border-b border-white/10 text-white/50 uppercase font-black tracking-wider">
-              <tr>
-                <th className="py-3.5 px-4">Item & SKU</th>
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                <th className="py-3.5 px-5">Item / SKU</th>
                 <th className="py-3.5 px-4">Category</th>
-                <th className="py-3.5 px-4">Unit</th>
+                <th className="py-3.5 px-4">Pack Unit</th>
                 <th className="py-3.5 px-4">Selling Price (₹)</th>
-                <th className="py-3.5 px-4">Discount Price</th>
-                <th className="py-3.5 px-4">MRP</th>
-                <th className="py-3.5 px-4">Stock</th>
-                <th className="py-3.5 px-4">Stock Status</th>
-                <th className="py-3.5 px-4 text-right">Action</th>
+                <th className="py-3.5 px-4">Stock Qty</th>
+                <th className="py-3.5 px-4">Store Availability</th>
+                <th className="py-3.5 px-4 text-right">Quick Edit</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
-              {filteredItems.map((item) => {
-                const isEditing = editingId === item.id;
-                return (
-                  <tr
-                    key={item.id}
-                    className="hover:bg-white/[0.02] transition-colors"
-                  >
-                    {/* Item & SKU */}
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-3">
+            <tbody className="divide-y divide-gray-100 text-xs">
+              {filteredItems.map((item) => (
+                <tr
+                  key={item.id}
+                  className={`hover:bg-gray-50/60 transition-colors ${
+                    !item.is_available ? 'bg-gray-50/30 opacity-70' : ''
+                  }`}
+                >
+                  {/* Item / Image */}
+                  <td className="py-3.5 px-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-gray-100 border border-black/5 overflow-hidden relative shrink-0">
                         <img
                           src={item.image}
                           alt={item.name}
-                          className="w-10 h-10 rounded-xl object-cover bg-white/10 shrink-0"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as any).src = 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=200&q=80';
+                          }}
                         />
-                        <div>
-                          <p className="font-bold text-white text-sm">
-                            {item.name}
-                          </p>
-                          <p className="text-[10px] font-mono text-white/40">
-                            {item.sku}
-                          </p>
-                        </div>
                       </div>
-                    </td>
+                      <div>
+                        <p className="font-extrabold text-gray-950 text-xs">{item.name}</p>
+                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">{item.sku}</p>
+                      </div>
+                    </div>
+                  </td>
 
-                    {/* Category */}
-                    <td className="py-3.5 px-4 text-white/70">
+                  {/* Category */}
+                  <td className="py-3.5 px-4">
+                    <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-semibold text-[10px] border border-black/5">
                       {item.category}
-                    </td>
+                    </span>
+                  </td>
 
-                    {/* Unit */}
-                    <td className="py-3.5 px-4 text-white/60 font-mono">
-                      {item.unit}
-                    </td>
+                  {/* Pack Unit */}
+                  <td className="py-3.5 px-4 font-medium text-gray-600">{item.unit}</td>
 
-                    {/* Selling Price (Inline Editable) */}
-                    <td className="py-3.5 px-4">
-                      {isEditing ? (
+                  {/* Pricing (Inline Editable) */}
+                  <td className="py-3.5 px-4">
+                    {editingId === item.id ? (
+                      <div className="flex items-center gap-1.5">
                         <input
                           type="number"
                           value={editPrice}
                           onChange={(e) => setEditPrice(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && saveEditing(item.id)}
-                          className="w-20 bg-black/60 border border-[#FF5E00] rounded-lg px-2 py-1 text-white font-mono font-bold text-sm focus:outline-none"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEditing(item.id);
+                            if (e.key === 'Escape') setEditingId(null);
+                          }}
+                          className="w-16 px-2 py-1 bg-white border border-[#FF5E00] rounded-xl text-xs font-bold text-gray-950 focus:outline-none"
                           autoFocus
                         />
-                      ) : (
-                        <div
-                          onClick={() => startEditing(item)}
-                          className="cursor-pointer group flex items-center gap-1.5 font-bold font-mono text-sm text-white"
-                        >
-                          <span>₹{item.price}</span>
-                          <Edit2 className="w-3 h-3 text-white/30 group-hover:text-[#FF5E00] transition-colors" />
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Discount Price */}
-                    <td className="py-3.5 px-4">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          value={editDiscountPrice}
-                          onChange={(e) => setEditDiscountPrice(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && saveEditing(item.id)}
-                          placeholder="Optional"
-                          className="w-20 bg-black/60 border border-[#FF5E00] rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none"
-                        />
-                      ) : (
-                        <span className="font-mono text-white/60">
-                          {item.discount_price ? `₹${item.discount_price}` : '—'}
-                        </span>
-                      )}
-                    </td>
-
-                    {/* MRP */}
-                    <td className="py-3.5 px-4 font-mono text-white/40 line-through">
-                      ₹{item.mrp}
-                    </td>
-
-                    {/* Stock */}
-                    <td className="py-3.5 px-4 font-mono font-bold text-white">
-                      {item.stock}
-                    </td>
-
-                    {/* Stock Status Switch */}
-                    <td className="py-3.5 px-4">
-                      <button
-                        onClick={() => handleToggleStock(item.id)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black border transition-all ${
-                          item.is_available
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
-                            : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20'
-                        }`}
-                      >
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            item.is_available ? 'bg-emerald-400' : 'bg-red-400'
-                          }`}
-                        />
-                        {item.is_available ? 'In Stock' : 'Sold Out'}
-                      </button>
-                    </td>
-
-                    {/* Actions */}
-                    <td className="py-3.5 px-4 text-right">
-                      {isEditing ? (
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => saveEditing(item.id)}
-                            className="p-1.5 rounded-lg bg-emerald-500 text-black hover:bg-emerald-400 transition-colors"
-                            title="Save"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setEditingId(null)}
-                            className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
-                            title="Cancel"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
                         <button
-                          onClick={() => startEditing(item)}
-                          className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 text-[11px] font-bold transition-all"
+                          onClick={() => saveEditing(item.id)}
+                          className="p-1 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                          title="Save price"
                         >
-                          Edit Price
+                          <Check className="w-3.5 h-3.5" />
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="p-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200"
+                          title="Cancel"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => startEditing(item)}
+                        className="cursor-pointer group flex items-center gap-1.5"
+                        title="Click to edit price"
+                      >
+                        <span className="font-extrabold text-gray-950 tabular-nums">
+                          ₹{item.price}
+                        </span>
+                        {item.discount_price && item.discount_price < item.price && (
+                          <span className="text-[10px] text-gray-400 line-through tabular-nums">
+                            ₹{item.discount_price}
+                          </span>
+                        )}
+                        <Edit2 className="w-3 h-3 text-gray-300 group-hover:text-gray-600 transition-colors opacity-0 group-hover:opacity-100" />
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Stock Quantity */}
+                  <td className="py-3.5 px-4">
+                    <span
+                      className={`font-bold tabular-nums ${
+                        item.stock === 0 ? 'text-red-500' : item.stock < 10 ? 'text-amber-500' : 'text-gray-800'
+                      }`}
+                    >
+                      {item.stock} units
+                    </span>
+                  </td>
+
+                  {/* In Stock vs Sold Out Toggle */}
+                  <td className="py-3.5 px-4">
+                    <button
+                      onClick={() => handleToggleStock(item.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all active:scale-[0.97] ${
+                        item.is_available
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                          : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          item.is_available ? 'bg-emerald-500' : 'bg-red-500'
+                        }`}
+                      />
+                      <span>{item.is_available ? 'In Stock' : 'Sold Out'}</span>
+                    </button>
+                  </td>
+
+                  {/* Action */}
+                  <td className="py-3.5 px-4 text-right">
+                    <button
+                      onClick={() => startEditing(item)}
+                      className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[11px] transition-all"
+                    >
+                      Edit Price
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
+
+          {/* Apple-grade Quiet Empty State */}
+          {!loading && filteredItems.length === 0 && (
+            <div className="py-20 px-4 flex flex-col items-center justify-center text-center">
+              <div className="w-14 h-14 rounded-3xl bg-gray-50 border border-black/5 flex items-center justify-center text-gray-400 mb-3.5 shadow-sm">
+                <Package className="w-6 h-6 text-gray-400 stroke-[1.5]" />
+              </div>
+              <h3 className="text-sm font-semibold text-gray-900 tracking-tight">
+                No Products Found in Catalog
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-sm">
+                {search
+                  ? `No items match the filter "${search}". Clear search to view all items.`
+                  : 'The Joniha Central Hub catalog currently has no products configured in Supabase.'}
+              </p>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="mt-4 px-4 py-2 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all"
+              >
+                + Add First Product
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Floating Notification Toast */}
+      {toastMessage && (
+        <div className="fixed top-20 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-gray-900 text-white shadow-2xl animate-in slide-in-from-top-3 duration-200">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span className="text-xs font-semibold">{toastMessage}</span>
+        </div>
+      )}
+
       {/* Quick Add Product Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-lg bg-[#170A2D] border border-white/15 rounded-3xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-lg bg-white border border-black/5 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div>
-                <h3 className="text-lg font-black text-white">
-                  Quick Add Emergency Product
-                </h3>
-                <p className="text-xs text-white/60 mt-0.5">
-                  Register new local arrival into Belzo Central Hub 01 inventory.
+                <h3 className="text-lg font-extrabold text-gray-950">Add Catalog Product</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Insert a real SKU into Supabase `products` for Joniha Central Hub.
                 </p>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20"
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200"
               >
                 ✕
               </button>
@@ -504,120 +588,107 @@ export default function InventoryPricingPage() {
 
             <form onSubmit={handleQuickAddProduct} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-bold text-white/70 mb-1">
-                  Product Name *
-                </label>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Product Title</label>
                 <input
                   type="text"
+                  required
+                  placeholder="e.g. Amul Taaza Fresh Toned Milk"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Organic Strawberries (Box)"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[#FF5E00]"
-                  required
+                  className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-white/70 mb-1">
-                    Category *
-                  </label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Category</label>
                   <select
-                    value={newCat}
-                    onChange={(e) => setNewCat(e.target.value)}
-                    className="w-full bg-[#170A2D] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF5E00]"
+                    value={newCatId}
+                    onChange={(e) => setNewCatId(e.target.value)}
+                    className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
                   >
-                    <option value="Grocery">Grocery</option>
-                    <option value="Fruits & Veggies">Fruits & Veggies</option>
-                    <option value="Food">Food</option>
-                    <option value="Pharma">Pharma</option>
-                    <option value="Electronics">Electronics</option>
+                    {categoriesList.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-white/70 mb-1">
-                    Unit Measurement *
-                  </label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Unit Specification</label>
                   <input
                     type="text"
+                    required
+                    placeholder="e.g. 500 ml / 1 kg / 6 pcs"
                     value={newUnit}
                     onChange={(e) => setNewUnit(e.target.value)}
-                    placeholder="e.g. 250 g / 1 pc"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[#FF5E00]"
-                    required
+                    className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-white/70 mb-1">
-                    Selling Price (₹) *
-                  </label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Price (₹)</label>
                   <input
                     type="number"
+                    required
+                    step="0.01"
+                    placeholder="34"
                     value={newPrice}
                     onChange={(e) => setNewPrice(e.target.value)}
-                    placeholder="e.g. 99"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF5E00]"
-                    required
+                    className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-white/70 mb-1">
-                    MRP (₹)
-                  </label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">MRP (₹)</label>
                   <input
                     type="number"
+                    step="0.01"
+                    placeholder="38"
                     value={newMrp}
                     onChange={(e) => setNewMrp(e.target.value)}
-                    placeholder="e.g. 120"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF5E00]"
+                    className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-white/70 mb-1">
-                    Initial Stock
-                  </label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Initial Stock</label>
                   <input
                     type="number"
+                    required
+                    placeholder="25"
                     value={newStock}
                     onChange={(e) => setNewStock(e.target.value)}
-                    placeholder="15"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF5E00]"
+                    className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-white/70 mb-1">
-                  Product Image URL (Optional)
-                </label>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Image URL (Unsplash or CDN)</label>
                 <input
                   type="url"
+                  placeholder="https://images.unsplash.com/..."
                   value={newImageUrl}
                   onChange={(e) => setNewImageUrl(e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[#FF5E00]"
+                  className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
                 />
               </div>
 
-              <div className="pt-2 flex justify-end gap-2">
+              <div className="pt-2 flex justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-xs font-bold transition-all"
+                  className="px-4 py-2.5 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-black shadow-lg transition-all"
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50"
                 >
-                  Add to Catalog ➔
+                  {isSubmitting ? 'Inserting...' : 'Commit to Supabase'}
                 </button>
               </div>
             </form>

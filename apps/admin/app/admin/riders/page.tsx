@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Bike, 
   Search, 
@@ -15,8 +15,9 @@ import {
   MapPin, 
   Eye, 
   X,
-  Filter,
-  Ban
+  Ban,
+  RefreshCw,
+  UserCheck
 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 
@@ -24,7 +25,7 @@ interface Rider {
   id: string;
   name: string;
   phone: string;
-  vehicle_type: 'EV Scooter' | 'Motorcycle' | 'Bicycle';
+  vehicle_type: string;
   vehicle_number: string;
   kyc_status: 'verified' | 'pending' | 'rejected';
   is_online: boolean;
@@ -36,82 +37,9 @@ interface Rider {
   kyc_rejection_reason?: string;
 }
 
-const INITIAL_RIDERS: Rider[] = [
-  {
-    id: 'rd-01',
-    name: 'Suresh Kumar',
-    phone: '+91 98450 11223',
-    vehicle_type: 'EV Scooter',
-    vehicle_number: 'KA-01-EQ-9421',
-    kyc_status: 'verified',
-    is_online: true,
-    rating: 4.9,
-    total_deliveries: 428,
-    assigned_hub: 'Koramangala Hub 01',
-    license_number: 'DL-042018009214',
-    joined_date: '12 Jan 2026'
-  },
-  {
-    id: 'rd-02',
-    name: 'Vikram Singh',
-    phone: '+91 97410 44556',
-    vehicle_type: 'Motorcycle',
-    vehicle_number: 'KA-03-MR-1102',
-    kyc_status: 'pending',
-    is_online: false,
-    rating: 5.0,
-    total_deliveries: 0,
-    assigned_hub: 'Indiranagar Central',
-    license_number: 'DL-052021008891',
-    joined_date: 'Today, 14:20'
-  },
-  {
-    id: 'rd-03',
-    name: 'Rahul Patil',
-    phone: '+91 99001 88776',
-    vehicle_type: 'EV Scooter',
-    vehicle_number: 'KA-05-EV-6632',
-    kyc_status: 'verified',
-    is_online: true,
-    rating: 4.8,
-    total_deliveries: 312,
-    assigned_hub: 'HSR Layout Sector 2',
-    license_number: 'DL-032019001147',
-    joined_date: '02 Feb 2026'
-  },
-  {
-    id: 'rd-04',
-    name: 'Mohammed Ali',
-    phone: '+91 98112 33445',
-    vehicle_type: 'Bicycle',
-    vehicle_number: 'HERO-CY-99',
-    kyc_status: 'pending',
-    is_online: false,
-    rating: 5.0,
-    total_deliveries: 0,
-    assigned_hub: 'Koramangala Hub 01',
-    license_number: 'AADHAAR-XXXX-4421',
-    joined_date: 'Yesterday'
-  },
-  {
-    id: 'rd-05',
-    name: 'Deepak Sharma',
-    phone: '+91 98200 99881',
-    vehicle_type: 'Motorcycle',
-    vehicle_number: 'KA-04-AB-5541',
-    kyc_status: 'rejected',
-    is_online: false,
-    rating: 4.2,
-    total_deliveries: 45,
-    assigned_hub: 'Indiranagar Central',
-    license_number: 'DL-092014002319',
-    joined_date: '18 Feb 2026',
-    kyc_rejection_reason: 'Expired driving license document submitted.'
-  }
-];
-
 export default function AdminRidersPage() {
-  const [riders, setRiders] = useState<Rider[]>(INITIAL_RIDERS);
+  const [riders, setRiders] = useState<Rider[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [kycFilter, setKycFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('all');
   
@@ -120,57 +48,118 @@ export default function AdminRidersPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
 
-  // Supabase sync
-  useEffect(() => {
-    async function loadRiders() {
-      try {
-        const { data, error } = await supabase
+  // Live Supabase query from riders joined with profiles and dark_stores
+  const loadRiders = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data: ridersData, error: ridersErr } = await supabase
+        .from('riders')
+        .select(`
+          *,
+          profiles:id (full_name, phone, avatar_url, is_active),
+          dark_stores:store_id (name)
+        `);
+
+      if (!ridersErr && ridersData && ridersData.length > 0) {
+        const formatted: Rider[] = ridersData.map((r: any) => ({
+          id: r.id,
+          name: r.profiles?.full_name || `Courier #${r.id.slice(0, 5)}`,
+          phone: r.profiles?.phone || '+91 90000 00000',
+          vehicle_type: r.vehicle_type || 'Motorcycle',
+          vehicle_number: r.vehicle_number || 'UP-71',
+          kyc_status: r.kyc_status || (r.is_verified ? 'verified' : 'pending'),
+          is_online: Boolean(r.is_online),
+          rating: Number(r.rating) || 5.0,
+          total_deliveries: Number(r.total_deliveries) || 0,
+          assigned_hub: r.dark_stores?.name || 'Belzo Joniha Central Hub 01',
+          license_number: r.license_number || r.driving_license_no || 'DL-ON-RECORD',
+          joined_date: r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Active Partner',
+        }));
+        setRiders(formatted);
+      } else {
+        // Check if there are profiles with role = 'rider'
+        const { data: profileRiders } = await supabase
           .from('profiles')
           .select('*')
           .eq('role', 'rider');
 
-        if (error) throw error;
-        if (data && data.length > 0) {
-          const formatted: Rider[] = data.map((r: any, idx: number) => ({
-            id: r.id,
-            name: r.full_name || `Rider ${idx + 1}`,
-            phone: r.phone || '+91 90000 00000',
-            vehicle_type: 'EV Scooter',
-            vehicle_number: `KA-01-BEL-${1000 + idx}`,
-            kyc_status: r.is_active ? 'verified' : 'pending',
-            is_online: r.is_active ?? false,
-            rating: 4.8,
-            total_deliveries: Math.floor(Math.random() * 200) + 10,
-            assigned_hub: 'Koramangala Hub 01',
-            license_number: `DL-2026-${5000 + idx}`,
-            joined_date: 'Recent'
+        if (profileRiders && profileRiders.length > 0) {
+          const formatted: Rider[] = profileRiders.map((p: any) => ({
+            id: p.id,
+            name: p.full_name || 'Courier Partner',
+            phone: p.phone || '+91 90000 00000',
+            vehicle_type: 'Motorcycle',
+            vehicle_number: 'UP-71',
+            kyc_status: p.is_active ? 'verified' : 'pending',
+            is_online: Boolean(p.is_active),
+            rating: 5.0,
+            total_deliveries: 0,
+            assigned_hub: 'Belzo Joniha Central Hub 01',
+            license_number: 'KYC-PENDING',
+            joined_date: p.created_at ? new Date(p.created_at).toLocaleDateString() : 'Registered',
           }));
           setRiders(formatted);
+        } else {
+          setRiders([]);
         }
-      } catch {
-        // Fallback to initial mock list
       }
+    } catch (err) {
+      console.warn('[Admin Riders] Supabase sync note:', err);
+      setRiders([]);
+    } finally {
+      setLoading(false);
     }
-    loadRiders();
   }, []);
 
-  const filteredRiders = riders.filter(r => {
-    const matchesSearch = r.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          r.phone.includes(searchTerm) ||
-                          r.vehicle_number.toLowerCase().includes(searchTerm.toLowerCase());
+  useEffect(() => {
+    loadRiders();
+
+    const channel = supabase
+      .channel('admin-riders-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'riders' },
+        () => {
+          loadRiders();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        () => {
+          loadRiders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadRiders]);
+
+  const filteredRiders = riders.filter((r) => {
+    const matchesSearch =
+      r.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.phone.includes(searchTerm) ||
+      r.vehicle_number.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesKyc = kycFilter === 'all' || r.kyc_status === kycFilter;
     return matchesSearch && matchesKyc;
   });
 
   const handleApproveKyc = async (riderId: string) => {
-    setRiders(prev => prev.map(r => r.id === riderId ? { ...r, kyc_status: 'verified', is_online: true } : r));
+    setRiders((prev) =>
+      prev.map((r) => (r.id === riderId ? { ...r, kyc_status: 'verified', is_online: true } : r))
+    );
     if (selectedRider && selectedRider.id === riderId) {
-      setSelectedRider(prev => prev ? { ...prev, kyc_status: 'verified', is_online: true } : null);
+      setSelectedRider((prev) => (prev ? { ...prev, kyc_status: 'verified', is_online: true } : null));
     }
     try {
-      await supabase.from('profiles').update({ is_active: true }).eq('id', riderId);
-    } catch {
-      // Local optimistic update
+      await Promise.all([
+        supabase.from('riders').update({ kyc_status: 'verified', is_online: true }).eq('id', riderId),
+        supabase.from('profiles').update({ is_active: true }).eq('id', riderId),
+      ]);
+    } catch (err) {
+      console.warn('KYC approval error:', err);
     }
   };
 
@@ -179,387 +168,317 @@ export default function AdminRidersPage() {
       alert('Please state a rejection reason.');
       return;
     }
-    setRiders(prev => prev.map(r => r.id === riderId ? { 
-      ...r, 
-      kyc_status: 'rejected', 
-      is_online: false,
-      kyc_rejection_reason: rejectReason 
-    } : r));
+    setRiders((prev) =>
+      prev.map((r) =>
+        r.id === riderId
+          ? { 
+              ...r, 
+              kyc_status: 'rejected', 
+              is_online: false,
+              kyc_rejection_reason: rejectReason 
+            }
+          : r
+      )
+    );
     if (selectedRider && selectedRider.id === riderId) {
-      setSelectedRider(prev => prev ? { 
-        ...prev, 
-        kyc_status: 'rejected', 
-        is_online: false,
-        kyc_rejection_reason: rejectReason 
-      } : null);
+      setSelectedRider((prev) =>
+        prev
+          ? { 
+              ...prev, 
+              kyc_status: 'rejected', 
+              is_online: false,
+              kyc_rejection_reason: rejectReason 
+            }
+          : null
+      );
     }
     setIsRejecting(false);
     setRejectReason('');
     try {
-      await supabase.from('profiles').update({ is_active: false }).eq('id', riderId);
-    } catch {
-      // Local optimistic update
+      await Promise.all([
+        supabase.from('riders').update({ kyc_status: 'rejected', is_online: false }).eq('id', riderId),
+        supabase.from('profiles').update({ is_active: false }).eq('id', riderId),
+      ]);
+    } catch (err) {
+      console.warn('KYC reject error:', err);
     }
-  };
-
-  const handleToggleOnline = async (riderId: string, current: boolean) => {
-    const nextVal = !current;
-    setRiders(prev => prev.map(r => r.id === riderId ? { ...r, is_online: nextVal } : r));
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-gray-950 tracking-tight flex items-center gap-2">
             <Bike className="w-6 h-6 text-[#FF5E00]" />
-            Fleet & Rider KYC Verification Desk
+            Fleet & Courier KYC Desk
           </h1>
-          <p className="text-sm text-white/50 mt-1">
-            Review delivery partner applications, inspect driving licenses, and manage active fleet safety.
+          <p className="text-sm text-gray-500 mt-1">
+            Verification pipeline, on-duty duty tracking, and license audits for 10-minute dispatchers.
           </p>
         </div>
-
-        {/* KYC Filter Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-white/5 border border-white/10 rounded-xl">
-          {(['all', 'pending', 'verified', 'rejected'] as const).map((tab) => {
-            const active = kycFilter === tab;
-            const count = tab === 'all' ? riders.length : riders.filter(r => r.kyc_status === tab).length;
-            return (
-              <button
-                key={tab}
-                onClick={() => setKycFilter(tab)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all flex items-center gap-1.5 ${
-                  active 
-                    ? 'bg-[#FF5E00] text-white shadow-md shadow-[#FF5E00]/30' 
-                    : 'text-white/60 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <span>{tab}</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                  active ? 'bg-black/30 text-white' : 'bg-white/10 text-white/60'
-                }`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => loadRiders()}
+            className="p-2.5 rounded-2xl bg-white border border-black/5 hover:bg-gray-50 text-gray-600 shadow-sm transition-all"
+            title="Refresh Fleet"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#FF5E00]' : ''}`} />
+          </button>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>On-Duty: {riders.filter((r) => r.is_online).length}</span>
+          </div>
         </div>
       </div>
 
-      {/* KPI Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-          <div className="text-xs font-semibold text-white/50 uppercase tracking-wider">Total Fleet</div>
-          <div className="text-2xl font-bold text-white font-mono mt-1">{riders.length}</div>
-          <div className="text-xs text-white/40 mt-1">Registered delivery partners</div>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-3xl border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-xs font-medium text-gray-500">Total Registered Fleet</p>
+          <p className="text-2xl font-extrabold text-gray-950 mt-1 tracking-tight tabular-nums">
+            {riders.length}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">Delivery couriers</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-          <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Pending KYC Audits</div>
-          <div className="text-2xl font-bold text-amber-400 font-mono mt-1">
-            {riders.filter(r => r.kyc_status === 'pending').length}
-          </div>
-          <div className="text-xs text-white/40 mt-1">Requires admin approval</div>
+        <div className="bg-white p-5 rounded-3xl border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-xs font-medium text-gray-500">KYC Verified</p>
+          <p className="text-2xl font-extrabold text-emerald-600 mt-1 tracking-tight tabular-nums">
+            {riders.filter((r) => r.kyc_status === 'verified').length}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">Authorized for drops</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-          <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Active On-Duty</div>
-          <div className="text-2xl font-bold text-emerald-400 font-mono mt-1">
-            {riders.filter(r => r.is_online).length}
-          </div>
-          <div className="text-xs text-white/40 mt-1">Carrying or awaiting dispatches</div>
+        <div className="bg-white p-5 rounded-3xl border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-xs font-medium text-gray-500">Pending Review</p>
+          <p className="text-2xl font-extrabold text-amber-500 mt-1 tracking-tight tabular-nums">
+            {riders.filter((r) => r.kyc_status === 'pending').length}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">Action required</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-          <div className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Avg Fleet Rating</div>
-          <div className="text-2xl font-bold text-purple-300 font-mono mt-1 flex items-center gap-1.5">
-            <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
-            4.85
-          </div>
-          <div className="text-xs text-white/40 mt-1">Customer feedback score</div>
+        <div className="bg-white p-5 rounded-3xl border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-xs font-medium text-gray-500">Suspended / Rejected</p>
+          <p className="text-2xl font-extrabold text-red-500 mt-1 tracking-tight tabular-nums">
+            {riders.filter((r) => r.kyc_status === 'rejected').length}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">Deactivated profiles</p>
         </div>
       </div>
 
-      {/* Search Input */}
-      <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-        <div className="relative w-full">
-          <Search className="w-4 h-4 text-white/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="relative w-full sm:w-80">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search riders by name, phone number, or vehicle plate..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#FF5E00]/50 transition-colors"
+            placeholder="Search couriers by name, phone, plate..."
+            className="w-full bg-white border border-black/5 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#FF5E00] shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
           />
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1">
+          {(['all', 'pending', 'verified', 'rejected'] as const).map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setKycFilter(filter)}
+              className={`px-3 py-1.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border ${
+                kycFilter === filter
+                  ? 'bg-gray-950 text-white border-gray-950 shadow-sm'
+                  : 'bg-white text-gray-600 border-black/5 hover:bg-gray-50'
+              }`}
+            >
+              {filter === 'all'
+                ? `All Partners (${riders.length})`
+                : filter.replace(/\b\w/g, (l) => l.toUpperCase())}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Fleet Table */}
-      <div className="rounded-2xl bg-[#1D0E38]/60 border border-white/10 backdrop-blur-xl overflow-hidden shadow-2xl">
+      {/* Couriers Table Card */}
+      <div className="bg-white border border-black/5 rounded-3xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-white/80">
-            <thead className="text-xs uppercase bg-white/5 border-b border-white/10 text-white/50 tracking-wider">
-              <tr>
-                <th className="px-6 py-4">Rider Details</th>
-                <th className="px-6 py-4">Vehicle & Plate</th>
-                <th className="px-6 py-4">Assigned Hub</th>
-                <th className="px-6 py-4">KYC Compliance</th>
-                <th className="px-6 py-4">Duty Status</th>
-                <th className="px-6 py-4">Performance</th>
-                <th className="px-6 py-4 text-right">KYC Desk</th>
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                <th className="py-3.5 px-6">Courier Identity</th>
+                <th className="py-3.5 px-6">Vehicle / Reg</th>
+                <th className="py-3.5 px-6">KYC Status</th>
+                <th className="py-3.5 px-6">Duty Status</th>
+                <th className="py-3.5 px-6">Total Deliveries</th>
+                <th className="py-3.5 px-6 text-right">KYC Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-gray-100 text-xs">
               {filteredRiders.map((rider) => (
-                <tr key={rider.id} className="hover:bg-white/[0.02] transition-colors group">
+                <tr key={rider.id} className="hover:bg-gray-50/60 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500/20 to-[#FF5E00]/20 border border-white/10 flex items-center justify-center font-bold text-white text-sm">
-                        {rider.name.charAt(0)}
+                      <div className="w-10 h-10 rounded-2xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#FF5E00]">
+                        <Bike className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="font-semibold text-white group-hover:text-[#FF5E00] transition-colors">
-                          {rider.name}
-                        </div>
-                        <div className="text-xs text-white/40 flex items-center gap-1 mt-0.5">
-                          <Phone className="w-3 h-3" />
-                          {rider.phone}
-                        </div>
+                        <p className="font-extrabold text-gray-950 text-xs">{rider.name}</p>
+                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">{rider.phone}</p>
                       </div>
                     </div>
                   </td>
 
                   <td className="px-6 py-4">
-                    <div className="flex flex-col">
-                      <span className="font-medium text-white text-xs">{rider.vehicle_type}</span>
-                      <span className="text-[11px] font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded w-fit mt-1 border border-white/5">
-                        {rider.vehicle_number}
-                      </span>
-                    </div>
+                    <p className="font-bold text-gray-900">{rider.vehicle_number}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{rider.vehicle_type}</p>
                   </td>
 
                   <td className="px-6 py-4">
-                    <span className="text-xs text-white/70 flex items-center gap-1">
-                      <MapPin className="w-3 h-3 text-[#FF5E00]" />
-                      {rider.assigned_hub}
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                      rider.kyc_status === 'verified'
-                        ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                        : rider.kyc_status === 'pending'
-                        ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 animate-pulse'
-                        : 'bg-red-500/10 text-red-300 border-red-500/30'
-                    }`}>
-                      {rider.kyc_status === 'verified' && <CheckCircle2 className="w-3.5 h-3.5" />}
-                      {rider.kyc_status === 'pending' && <Clock className="w-3.5 h-3.5" />}
-                      {rider.kyc_status === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
-                      <span className="capitalize">{rider.kyc_status}</span>
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <button
-                      onClick={() => handleToggleOnline(rider.id, rider.is_online)}
-                      disabled={rider.kyc_status !== 'verified'}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                        rider.is_online 
-                          ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' 
-                          : 'bg-white/5 text-white/40 border-white/10'
-                      } ${rider.kyc_status !== 'verified' ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                        rider.kyc_status === 'verified'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : rider.kyc_status === 'pending'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-red-50 text-red-600 border-red-200'
+                      }`}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full ${rider.is_online ? 'bg-emerald-400' : 'bg-white/30'}`} />
-                      {rider.is_online ? 'On-Duty' : 'Off-Duty'}
-                    </button>
+                      {rider.kyc_status === 'verified' ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      ) : rider.kyc_status === 'pending' ? (
+                        <Clock className="w-3 h-3 text-amber-600" />
+                      ) : (
+                        <XCircle className="w-3 h-3 text-red-600" />
+                      )}
+                      <span>{rider.kyc_status.toUpperCase()}</span>
+                    </span>
                   </td>
 
                   <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1 text-xs text-amber-400 font-semibold">
-                        <Star className="w-3.5 h-3.5 fill-amber-400" />
-                        {rider.rating}
-                      </div>
-                      <div className="text-xs text-white/40">
-                        {rider.total_deliveries} drops
-                      </div>
-                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                        rider.is_online
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-gray-100 text-gray-600 border-gray-200'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          rider.is_online ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'
+                        }`}
+                      />
+                      <span>{rider.is_online ? 'On-Duty' : 'Offline'}</span>
+                    </span>
+                  </td>
+
+                  <td className="px-6 py-4 font-bold text-gray-950 tabular-nums">
+                    {rider.total_deliveries} drops
                   </td>
 
                   <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() => {
-                        setSelectedRider(rider);
-                        setIsRejecting(false);
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white font-medium text-xs border border-white/10 hover:border-white/20 transition-colors inline-flex items-center gap-1.5"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-[#FF5E00]" />
-                      Audit KYC
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      {rider.kyc_status !== 'verified' && (
+                        <button
+                          onClick={() => handleApproveKyc(rider.id)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200 transition-all flex items-center gap-1"
+                        >
+                          <ShieldCheck className="w-3 h-3" />
+                          <span>Approve</span>
+                        </button>
+                      )}
+                      {rider.kyc_status !== 'rejected' && (
+                        <button
+                          onClick={() => {
+                            setSelectedRider(rider);
+                            setIsRejecting(true);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold border border-red-200 transition-all flex items-center gap-1"
+                        >
+                          <Ban className="w-3 h-3" />
+                          <span>Suspend</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
-
-              {filteredRiders.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="text-center py-12 text-white/40">
-                    No riders found matching the criteria.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
+
+          {/* Apple-grade Quiet Empty State */}
+          {!loading && filteredRiders.length === 0 && (
+            <div className="py-20 px-4 flex flex-col items-center justify-center text-center">
+              <div className="w-14 h-14 rounded-3xl bg-gray-50 border border-black/5 flex items-center justify-center text-gray-400 mb-3.5 shadow-sm">
+                <Bike className="w-6 h-6 text-gray-400 stroke-[1.5]" />
+              </div>
+              <h3 className="text-sm font-semibold text-gray-900 tracking-tight">
+                No Delivery Partners Registered Yet
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-sm">
+                {searchTerm
+                  ? `No couriers matching query "${searchTerm}".`
+                  : 'Riders who register via the Belzo Courier mobile app will appear here for KYC verification.'}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* KYC Inspection Drawer / Modal */}
-      {selectedRider && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-[#1D0E38] border border-white/20 rounded-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-2xl">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-white/10">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#FF5E00]/20 border border-[#FF5E00]/30 flex items-center justify-center text-[#FF5E00]">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-white">Rider KYC Dossier</h2>
-                  <p className="text-xs text-white/50">{selectedRider.name} • {selectedRider.phone}</p>
-                </div>
-              </div>
+      {/* Rejection / Suspension Modal */}
+      {isRejecting && selectedRider && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md bg-white border border-black/5 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-lg font-extrabold text-gray-950">
+                Reject / Suspend Partner
+              </h3>
               <button
-                onClick={() => setSelectedRider(null)}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+                onClick={() => {
+                  setIsRejecting(false);
+                  setSelectedRider(null);
+                }}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200"
               >
-                <X className="w-5 h-5" />
+                ✕
               </button>
             </div>
 
-            {/* Content */}
-            <div className="p-6 space-y-5">
-              {/* Status Banner */}
-              <div className={`p-4 rounded-xl border flex items-center justify-between ${
-                selectedRider.kyc_status === 'verified'
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                  : selectedRider.kyc_status === 'pending'
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                  : 'bg-red-500/10 border-red-500/30 text-red-300'
-              }`}>
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  {selectedRider.kyc_status === 'verified' && <CheckCircle2 className="w-5 h-5" />}
-                  {selectedRider.kyc_status === 'pending' && <Clock className="w-5 h-5" />}
-                  {selectedRider.kyc_status === 'rejected' && <XCircle className="w-5 h-5" />}
-                  <span>KYC Compliance: {selectedRider.kyc_status.toUpperCase()}</span>
-                </div>
-                <span className="text-xs opacity-75">Joined {selectedRider.joined_date}</span>
-              </div>
+            <p className="text-xs text-gray-600">
+              Suspend partner <strong>{selectedRider.name}</strong> ({selectedRider.vehicle_number}). This immediately revokes order dispatch permissions.
+            </p>
 
-              {selectedRider.kyc_rejection_reason && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-300 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <strong>Rejection Reason:</strong> {selectedRider.kyc_rejection_reason}
-                  </div>
-                </div>
-              )}
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Reason for Rejection *
+              </label>
+              <textarea
+                required
+                rows={3}
+                placeholder="e.g. Expired driving license or failed vehicle inspection"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full bg-gray-50 border border-black/5 rounded-2xl p-3 text-xs text-gray-900 focus:outline-none focus:border-red-500"
+              />
+            </div>
 
-              {/* Rider Identity & Vehicle specs */}
-              <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-black/20 border border-white/5 text-xs">
-                <div>
-                  <div className="text-white/40 uppercase">Vehicle Type</div>
-                  <div className="font-semibold text-white mt-0.5">{selectedRider.vehicle_type}</div>
-                </div>
-                <div>
-                  <div className="text-white/40 uppercase">Registration Plate</div>
-                  <div className="font-semibold font-mono text-white mt-0.5">{selectedRider.vehicle_number}</div>
-                </div>
-                <div>
-                  <div className="text-white/40 uppercase">Assigned Hub</div>
-                  <div className="font-semibold text-white mt-0.5">{selectedRider.assigned_hub}</div>
-                </div>
-                <div>
-                  <div className="text-white/40 uppercase">Driving License / ID</div>
-                  <div className="font-semibold font-mono text-white mt-0.5">{selectedRider.license_number || 'DL-PENDING'}</div>
-                </div>
-              </div>
-
-              {/* Document Mock Preview */}
-              <div>
-                <div className="text-xs font-semibold text-white/70 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-[#FF5E00]" />
-                  Uploaded Verification Credentials
-                </div>
-                <div className="p-4 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center text-center space-y-2">
-                  <div className="w-16 h-16 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center text-white/50">
-                    <FileText className="w-8 h-8 text-white/60" />
-                  </div>
-                  <div className="text-sm font-semibold text-white">Govt. Motor Driving License & Aadhaar</div>
-                  <p className="text-xs text-white/40">Verified with Vahan / Parivahan API sandbox</p>
-                  <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                    DIGITAL MATCH SCORE: 98.4%
-                  </span>
-                </div>
-              </div>
-
-              {/* Reject reason input */}
-              {isRejecting && (
-                <div className="space-y-2 animate-in fade-in">
-                  <label className="block text-xs font-semibold text-red-300 uppercase tracking-wider">
-                    Specify Rejection / Suspension Grounds *
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    placeholder="e.g. Expired license, mismatched photo, or failed background safety check"
-                    className="w-full px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-white focus:outline-none placeholder-red-300/40"
-                  />
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
-                {selectedRider.kyc_status !== 'verified' && (
-                  <button
-                    onClick={() => handleApproveKyc(selectedRider.id)}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    Approve KYC & Onboard
-                  </button>
-                )}
-
-                {isRejecting ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsRejecting(false)}
-                      className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs font-medium"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRejectKyc(selectedRider.id)}
-                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg shadow-red-600/30"
-                    >
-                      Confirm Rejection
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setIsRejecting(true)}
-                    className="px-4 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/20 font-semibold text-xs transition-colors flex items-center gap-1.5"
-                  >
-                    <Ban className="w-4 h-4" />
-                    Reject or Suspend Rider
-                  </button>
-                )}
-              </div>
+            <div className="pt-2 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRejecting(false);
+                  setSelectedRider(null);
+                }}
+                className="px-4 py-2.5 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRejectKyc(selectedRider.id)}
+                className="px-5 py-2.5 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-sm transition-all"
+              >
+                Confirm Suspension
+              </button>
             </div>
           </div>
         </div>

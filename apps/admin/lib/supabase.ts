@@ -8,3 +8,5 @@ const supabaseAnonKey =
   'placeholder-anon-key';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export const JONIHA_HUB_ID = 'a0000000-0000-0000-0000-000000000001';

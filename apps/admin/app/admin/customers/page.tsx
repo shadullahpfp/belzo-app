@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Users, 
   Search, 
@@ -9,11 +9,10 @@ import {
   Phone, 
   Calendar, 
   ShoppingBag, 
-  IndianRupee, 
   CheckCircle2, 
-  Ban, 
-  Filter,
-  ArrowUpDown
+  Ban,
+  RefreshCw,
+  UserX
 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 
@@ -30,340 +29,327 @@ interface Customer {
   risk_level: 'low' | 'medium' | 'high';
 }
 
-const INITIAL_CUSTOMERS: Customer[] = [
-  {
-    id: 'cust-01',
-    name: 'Ananya Deshmukh',
-    phone: '+91 98451 22334',
-    email: 'ananya.d@gmail.com',
-    member_since: '10 Jan 2026',
-    total_orders: 42,
-    lifetime_gmv: 14850,
-    last_order_date: 'Today, 11:30 AM',
-    is_active: true,
-    risk_level: 'low'
-  },
-  {
-    id: 'cust-02',
-    name: 'Rohan Mehra',
-    phone: '+91 97420 55667',
-    email: 'rohan.mehra@outlook.com',
-    member_since: '18 Jan 2026',
-    total_orders: 19,
-    lifetime_gmv: 6200,
-    last_order_date: 'Yesterday, 19:15 PM',
-    is_active: true,
-    risk_level: 'low'
-  },
-  {
-    id: 'cust-03',
-    name: 'Kavita Sundaram',
-    phone: '+91 99012 33445',
-    email: 'kavita.s@yahoo.co.in',
-    member_since: '05 Feb 2026',
-    total_orders: 28,
-    lifetime_gmv: 11400,
-    last_order_date: '14 Feb 2026',
-    is_active: true,
-    risk_level: 'low'
-  },
-  {
-    id: 'cust-04',
-    name: 'Suspicious Account 901',
-    phone: '+91 91234 56789',
-    email: 'temp.user901@mailinator.com',
-    member_since: '16 Feb 2026',
-    total_orders: 3,
-    lifetime_gmv: 890,
-    last_order_date: '16 Feb 2026',
-    is_active: false,
-    risk_level: 'high'
-  },
-  {
-    id: 'cust-05',
-    name: 'Arjun Nambiar',
-    phone: '+91 98860 77889',
-    email: 'arjun.n@gmail.com',
-    member_since: '22 Jan 2026',
-    total_orders: 35,
-    lifetime_gmv: 13200,
-    last_order_date: 'Today, 08:45 AM',
-    is_active: true,
-    risk_level: 'low'
-  }
-];
-
 export default function AdminCustomersPage() {
-  const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
 
-  // Supabase sync
-  useEffect(() => {
-    async function loadCustomers() {
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('role', 'customer');
+  // Supabase live sync
+  const loadCustomers = useCallback(async () => {
+    try {
+      setLoading(true);
 
-        if (error) throw error;
-        if (data && data.length > 0) {
-          const formatted: Customer[] = data.map((c: any, idx: number) => ({
-            id: c.id,
-            name: c.full_name || `Customer #${idx + 1}`,
-            phone: c.phone || '+91 98000 00000',
-            email: c.email || undefined,
-            member_since: new Date(c.created_at || Date.now()).toLocaleDateString('en-IN', {
+      // 1. Fetch profiles where role = customer
+      const { data: profilesData, error: profError } = await supabase
+        .from('profiles')
+        .select('*')
+        .neq('role', 'admin')
+        .neq('role', 'store_operator')
+        .order('created_at', { ascending: false });
+
+      if (profError || !profilesData) {
+        setCustomers([]);
+        return;
+      }
+
+      // 2. Fetch orders to calculate customer GMV and order counts
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('customer_id, total_amount, created_at, status');
+
+      const allOrders: any[] = ordersData || [];
+
+      const formatted: Customer[] = profilesData.map((c: any, idx: number) => {
+        const userOrders = allOrders.filter((o) => o.customer_id === c.id);
+        const validOrders = userOrders.filter((o) => o.status !== 'cancelled');
+        const totalOrders = userOrders.length;
+        const lifetimeGmv = validOrders.reduce((sum: number, o: any) => sum + (Number(o.total_amount) || 0), 0);
+        
+        // Find most recent order date
+        const sortedOrders = [...userOrders].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        const lastOrder = sortedOrders[0];
+        const lastOrderDate = lastOrder?.created_at
+          ? new Date(lastOrder.created_at).toLocaleDateString('en-IN', {
               day: '2-digit',
               month: 'short',
-              year: 'numeric'
-            }),
-            total_orders: Math.floor(Math.random() * 30) + 5,
-            lifetime_gmv: Math.floor(Math.random() * 15000) + 2000,
-            last_order_date: 'Recent',
-            is_active: c.is_active ?? true,
-            risk_level: c.is_active === false ? 'high' : 'low'
-          }));
-          setCustomers(formatted);
-        }
-      } catch {
-        // Mock fallback
-      }
+            })
+          : 'No orders yet';
+
+        return {
+          id: c.id,
+          name: c.full_name || `Customer #${c.id.slice(0, 5)}`,
+          phone: c.phone || '+91 90000 00000',
+          email: c.email || undefined,
+          member_since: new Date(c.created_at || Date.now()).toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+          }),
+          total_orders: totalOrders,
+          lifetime_gmv: lifetimeGmv,
+          last_order_date: lastOrderDate,
+          is_active: c.is_active ?? true,
+          risk_level: c.is_active === false ? 'high' : 'low'
+        };
+      });
+
+      setCustomers(formatted);
+    } catch (err) {
+      console.warn('[Admin Customers] Query exception:', err);
+      setCustomers([]);
+    } finally {
+      setLoading(false);
     }
-    loadCustomers();
   }, []);
 
-  const filteredCustomers = customers.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          c.phone.includes(searchTerm) ||
-                          (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesStatus = statusFilter === 'all' 
-      ? true 
-      : statusFilter === 'active' ? c.is_active : !c.is_active;
+  useEffect(() => {
+    loadCustomers();
+
+    const channel = supabase
+      .channel('admin-customers-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        () => {
+          loadCustomers();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => {
+          loadCustomers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadCustomers]);
+
+  const filteredCustomers = customers.filter((c) => {
+    const matchesSearch =
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.phone.includes(searchTerm) ||
+      (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesStatus =
+      statusFilter === 'all' 
+        ? true 
+        : statusFilter === 'active' ? c.is_active : !c.is_active;
     return matchesSearch && matchesStatus;
   });
 
   const handleToggleBlock = async (id: string, currentlyActive: boolean) => {
     const nextState = !currentlyActive;
-    const action = nextState ? 'unblock' : 'block';
-    if (!confirm(`Are you sure you want to ${action} this customer account?`)) return;
-
-    setCustomers(prev => prev.map(c => {
-      if (c.id === id) {
-        return { 
-          ...c, 
-          is_active: nextState, 
-          risk_level: nextState ? 'low' : 'high' 
-        };
-      }
-      return c;
-    }));
-
+    setCustomers((prev) => prev.map((c) => c.id === id ? { ...c, is_active: nextState } : c));
     try {
-      await supabase.from('profiles').update({ is_active: nextState }).eq('id', id);
-    } catch {
-      // Local optimistic update
+      await supabase
+        .from('profiles')
+        .update({ is_active: nextState, updated_at: new Date().toISOString() })
+        .eq('id', id);
+    } catch (err) {
+      console.warn('Block account error:', err);
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-gray-950 tracking-tight flex items-center gap-2">
             <Users className="w-6 h-6 text-[#FF5E00]" />
-            Customer Directory & Trust & Safety
+            Customer Directory & Accounts
           </h1>
-          <p className="text-sm text-white/50 mt-1">
-            Global consumer profiles, lifetime GMV metrics, order history, and fraud mitigation switches.
+          <p className="text-sm text-gray-500 mt-1">
+            Registered customer profiles, ordering telemetry, and automated security fraud gatekeeping.
           </p>
         </div>
-
-        {/* Status Tab Filters */}
-        <div className="flex items-center gap-1.5 p-1 bg-white/5 border border-white/10 rounded-xl">
-          {(['all', 'active', 'blocked'] as const).map((tab) => {
-            const active = statusFilter === tab;
-            const count = tab === 'all' 
-              ? customers.length 
-              : tab === 'active' 
-              ? customers.filter(c => c.is_active).length 
-              : customers.filter(c => !c.is_active).length;
-
-            return (
-              <button
-                key={tab}
-                onClick={() => setStatusFilter(tab)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all flex items-center gap-1.5 ${
-                  active 
-                    ? 'bg-[#FF5E00] text-white shadow-md shadow-[#FF5E00]/30' 
-                    : 'text-white/60 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <span>{tab}</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                  active ? 'bg-black/30 text-white' : 'bg-white/10 text-white/60'
-                }`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => loadCustomers()}
+            className="p-2.5 rounded-2xl bg-white border border-black/5 hover:bg-gray-50 text-gray-600 shadow-sm transition-all"
+            title="Refresh Customers"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#FF5E00]' : ''}`} />
+          </button>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Total Customers: {customers.length}</span>
+          </div>
         </div>
       </div>
 
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-          <div className="text-xs font-semibold text-white/50 uppercase tracking-wider">Total Customers</div>
-          <div className="text-2xl font-bold text-white font-mono mt-1">{customers.length}</div>
-          <div className="text-xs text-white/40 mt-1">Verified mobile phone users</div>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-3xl border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-xs font-medium text-gray-500">Total User Base</p>
+          <p className="text-2xl font-extrabold text-gray-950 mt-1 tracking-tight tabular-nums">
+            {customers.length}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">Registered consumers</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-          <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Active Consumers</div>
-          <div className="text-2xl font-bold text-emerald-400 font-mono mt-1">
-            {customers.filter(c => c.is_active).length}
-          </div>
-          <div className="text-xs text-white/40 mt-1">In good standing</div>
+        <div className="bg-white p-5 rounded-3xl border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-xs font-medium text-gray-500">Active Accounts</p>
+          <p className="text-2xl font-extrabold text-emerald-600 mt-1 tracking-tight tabular-nums">
+            {customers.filter((c) => c.is_active).length}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">Authorized for checkout</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-          <div className="text-xs font-semibold text-red-400 uppercase tracking-wider">Blocked Accounts</div>
-          <div className="text-2xl font-bold text-red-400 font-mono mt-1">
-            {customers.filter(c => !c.is_active).length}
-          </div>
-          <div className="text-xs text-white/40 mt-1">Abuse & fraud blacklisted</div>
+        <div className="bg-white p-5 rounded-3xl border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-xs font-medium text-gray-500">Blocked / Suspended</p>
+          <p className="text-2xl font-extrabold text-red-500 mt-1 tracking-tight tabular-nums">
+            {customers.filter((c) => !c.is_active).length}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">Restricted from orders</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-          <div className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Lifetime Customer GMV</div>
-          <div className="text-2xl font-bold text-purple-300 font-mono mt-1">
-            ₹{customers.reduce((acc, c) => acc + c.lifetime_gmv, 0).toLocaleString()}
-          </div>
-          <div className="text-xs text-white/40 mt-1">Across all completed orders</div>
+        <div className="bg-white p-5 rounded-3xl border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          <p className="text-xs font-medium text-gray-500">Lifetime Consumer GMV</p>
+          <p className="text-2xl font-extrabold text-gray-950 mt-1 tracking-tight tabular-nums">
+            ₹{customers.reduce((sum, c) => sum + c.lifetime_gmv, 0).toLocaleString('en-IN')}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">Across all order items</p>
         </div>
       </div>
 
-      {/* Search Input */}
-      <div className="p-4 rounded-2xl bg-[#1D0E38]/80 border border-white/10 backdrop-blur-xl">
-        <div className="relative w-full">
-          <Search className="w-4 h-4 text-white/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="relative w-full sm:w-80">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search customers by name, phone number, or email address..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#FF5E00]/50 transition-colors"
+            placeholder="Search by name, phone, or email..."
+            className="w-full bg-white border border-black/5 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#FF5E00] shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
           />
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1">
+          {(['all', 'active', 'blocked'] as const).map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setStatusFilter(filter)}
+              className={`px-3 py-1.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border ${
+                statusFilter === filter
+                  ? 'bg-gray-950 text-white border-gray-950 shadow-sm'
+                  : 'bg-white text-gray-600 border-black/5 hover:bg-gray-50'
+              }`}
+            >
+              {filter === 'all'
+                ? `All Accounts (${customers.length})`
+                : filter.replace(/\b\w/g, (l) => l.toUpperCase())}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Customers Table */}
-      <div className="rounded-2xl bg-[#1D0E38]/60 border border-white/10 backdrop-blur-xl overflow-hidden shadow-2xl">
+      {/* Customers Table Card */}
+      <div className="bg-white border border-black/5 rounded-3xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-white/80">
-            <thead className="text-xs uppercase bg-white/5 border-b border-white/10 text-white/50 tracking-wider">
-              <tr>
-                <th className="px-6 py-4">Customer Profile</th>
-                <th className="px-6 py-4">Member Since</th>
-                <th className="px-6 py-4">Total Orders</th>
-                <th className="px-6 py-4">Lifetime Spend</th>
-                <th className="px-6 py-4">Last Activity</th>
-                <th className="px-6 py-4">Account Standing</th>
-                <th className="px-6 py-4 text-right">Safety Controls</th>
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                <th className="py-3.5 px-6">Customer Details</th>
+                <th className="py-3.5 px-6">Contact / Phone</th>
+                <th className="py-3.5 px-6">Member Since</th>
+                <th className="py-3.5 px-6">Total Orders</th>
+                <th className="py-3.5 px-6">Lifetime GMV</th>
+                <th className="py-3.5 px-6">Account Status</th>
+                <th className="py-3.5 px-6 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-gray-100 text-xs">
               {filteredCustomers.map((customer) => (
-                <tr key={customer.id} className="hover:bg-white/[0.02] transition-colors group">
+                <tr key={customer.id} className="hover:bg-gray-50/60 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FF5E00]/20 to-purple-500/20 border border-white/10 flex items-center justify-center font-bold text-white text-sm">
-                        {customer.name.charAt(0)}
+                      <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-700 font-bold border border-black/5 shrink-0">
+                        {customer.name.slice(0, 1).toUpperCase()}
                       </div>
                       <div>
-                        <div className="font-semibold text-white group-hover:text-[#FF5E00] transition-colors">
-                          {customer.name}
-                        </div>
-                        <div className="text-xs text-white/40 flex items-center gap-1 mt-0.5">
-                          <Phone className="w-3 h-3" />
-                          {customer.phone}
-                        </div>
+                        <p className="font-extrabold text-gray-950 text-xs">{customer.name}</p>
+                        {customer.email && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">{customer.email}</p>
+                        )}
                       </div>
                     </div>
                   </td>
 
-                  <td className="px-6 py-4 text-xs text-white/60">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-white/40" />
-                      {customer.member_since}
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-1.5 font-mono text-gray-700">
+                      <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                      <span>{customer.phone}</span>
                     </div>
                   </td>
 
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-1.5 font-mono font-medium text-white">
-                      <ShoppingBag className="w-3.5 h-3.5 text-[#FF5E00]" />
-                      {customer.total_orders} orders
-                    </div>
+                  <td className="px-6 py-4 text-gray-600">
+                    {customer.member_since}
+                  </td>
+
+                  <td className="px-6 py-4 font-extrabold text-gray-950 tabular-nums">
+                    {customer.total_orders} orders
+                  </td>
+
+                  <td className="px-6 py-4 font-extrabold text-gray-950 tabular-nums">
+                    ₹{customer.lifetime_gmv.toLocaleString('en-IN')}
                   </td>
 
                   <td className="px-6 py-4">
-                    <span className="font-mono font-semibold text-emerald-400">
-                      ₹{customer.lifetime_gmv.toLocaleString()}
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4 text-xs text-white/50">
-                    {customer.last_order_date}
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                      customer.is_active
-                        ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                        : 'bg-red-500/10 text-red-300 border-red-500/30'
-                    }`}>
-                      {customer.is_active ? <ShieldCheck className="w-3.5 h-3.5" /> : <ShieldAlert className="w-3.5 h-3.5" />}
-                      {customer.is_active ? 'Active Consumer' : 'Blacklisted / Blocked'}
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                        customer.is_active
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-red-50 text-red-700 border-red-200'
+                      }`}
+                    >
+                      {customer.is_active ? (
+                        <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                      ) : (
+                        <ShieldAlert className="w-3 h-3 text-red-600" />
+                      )}
+                      <span>{customer.is_active ? 'Active' : 'Blocked'}</span>
                     </span>
                   </td>
 
                   <td className="px-6 py-4 text-right">
                     <button
                       onClick={() => handleToggleBlock(customer.id, customer.is_active)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all inline-flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
                         customer.is_active
-                          ? 'bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/30 hover:border-red-500/50'
-                          : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:border-emerald-500/50'
+                          ? 'bg-red-50 hover:bg-red-100 text-red-600 border-red-200'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
                       }`}
                     >
-                      {customer.is_active ? (
-                        <>
-                          <Ban className="w-3.5 h-3.5" />
-                          Block Account
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Unblock Customer
-                        </>
-                      )}
+                      {customer.is_active ? 'Block Account' : 'Unblock Account'}
                     </button>
                   </td>
                 </tr>
               ))}
-
-              {filteredCustomers.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="text-center py-12 text-white/40">
-                    No customers found matching search criteria.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
+
+          {/* Apple-grade Quiet Empty State */}
+          {!loading && filteredCustomers.length === 0 && (
+            <div className="py-20 px-4 flex flex-col items-center justify-center text-center">
+              <div className="w-14 h-14 rounded-3xl bg-gray-50 border border-black/5 flex items-center justify-center text-gray-400 mb-3.5 shadow-sm">
+                <Users className="w-6 h-6 text-gray-400 stroke-[1.5]" />
+              </div>
+              <h3 className="text-sm font-semibold text-gray-900 tracking-tight">
+                No Customers Registered Yet
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-sm">
+                {searchTerm
+                  ? `No customer profiles matching query "${searchTerm}".`
+                  : 'Customers signing up on the Belzo mobile app will automatically appear in this directory.'}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

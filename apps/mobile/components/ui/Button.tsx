@@ -106,7 +106,7 @@ export const Button: React.FC<ButtonProps> = ({
         {loading ? (
           <ActivityIndicator
             size="small"
-            color={variant === 'glass' ? '#2A134D' : '#FFFFFF'}
+            color={variant === 'glass' ? '#1C1C1E' : '#FFFFFF'}
           />
         ) : (
           <>
@@ -158,16 +158,16 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   secondaryContainer: {
-    backgroundColor: '#2A134D', // Imperial Purple
+    backgroundColor: '#1C1C1E', // Apple Dark Graphite
     ...Platform.select({
       ios: {
-        shadowColor: '#2A134D',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.25,
-        shadowRadius: 10,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
       },
       android: {
-        elevation: 4,
+        elevation: 3,
       },
     }),
   },
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
     }),
   },
   glassText: {
-    color: '#2A134D',
+    color: '#1C1C1E',
   },
   disabled: {
     opacity: 0.5,

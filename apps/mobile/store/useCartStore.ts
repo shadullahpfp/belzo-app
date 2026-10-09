@@ -9,11 +9,18 @@ export interface CartProduct {
   mrp?: number;
   stock?: number;
   stock_quantity?: number;
+  is_available?: boolean;
   image?: string;
+  image_url?: string;
   media_urls?: string[];
   category?: string;
   category_id?: string;
+  slug?: string;
   description?: string;
+  tags?: string[];
+  search_tags?: string[];
+  store_id?: string;
+  discount_price?: number;
 }
 
 export interface CartItem {
@@ -55,6 +62,14 @@ interface CartStore {
   addItem: (product: CartProduct) => void;
   removeItem: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
+  handleProductUpdate: (updatedProduct: {
+    id: string;
+    price?: number;
+    discount_price?: number;
+    is_available?: boolean;
+    stock_quantity?: number;
+    name?: string;
+  }) => void;
   clearCart: () => void;
   setAddress: (address: Address | null) => void;
   setDeliveryInstructions: (instructions: string) => void;
@@ -70,14 +85,14 @@ const DEFAULT_ADDRESS: Address = {
   label: 'Home',
   recipient_name: 'Rahul Sharma',
   recipient_phone: '+91 98765 43210',
-  house_flat_no: 'Flat 402, Tower B',
-  floor: '4th Floor',
-  apartment_road_area: 'Prestige Meridian, 100ft Road, Indiranagar',
-  landmark: 'Near Metro Station Pillar 84',
-  city: 'Bengaluru',
-  postal_code: '560038',
-  lat: 12.9716,
-  lng: 77.5946,
+  house_flat_no: 'Ward No. 4',
+  floor: 'Ground Floor',
+  apartment_road_area: 'Shahbajpur, Joniha, Bindki',
+  landmark: 'Near Joniha Central Hub',
+  city: 'Fatehpur',
+  postal_code: '212635',
+  lat: 26.0350,
+  lng: 80.4650,
   is_default: true,
 };
 
@@ -181,6 +196,41 @@ export const useCartStore = create<CartStore>((set, get) => ({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } catch {}
     }
+
+    set({
+      items: newItems,
+      ...computeTotals(newItems),
+    });
+  },
+
+  handleProductUpdate: (updatedProduct) => {
+    const { items } = get();
+    const existing = items.find((i) => i.product.id === updatedProduct.id);
+    if (!existing) return;
+
+    const newPrice = updatedProduct.discount_price ?? updatedProduct.price ?? existing.product.price;
+    const isAvailable = updatedProduct.is_available ?? (updatedProduct.stock_quantity !== undefined ? updatedProduct.stock_quantity > 0 : true);
+    const newStock = updatedProduct.stock_quantity ?? existing.product.stock;
+
+    const newItems = items.map((i) => {
+      if (i.product.id === updatedProduct.id) {
+        return {
+          ...i,
+          product: {
+            ...i.product,
+            price: newPrice,
+            stock: newStock,
+            stock_quantity: newStock,
+            is_available: isAvailable,
+          },
+        };
+      }
+      return i;
+    });
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
 
     set({
       items: newItems,

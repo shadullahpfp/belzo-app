@@ -389,7 +389,7 @@ async function runSeed() {
       console.log('    Validating in-memory seed dataset and schema structure:\n');
 
       console.log('📦 Dark Store Hub:');
-      console.log('   ✔ "Belzo Central Hub 01" (Code: BLZ-DEL-01, Lat: 28.6139, Lng: 77.2090, Radius: 4.5km)');
+      console.log('   ✔ "Belzo Joniha Central Hub" (Code: BLZ-UP-JON01, Lat: 26.0350, Lng: 80.4650, Radius: 5.0km)');
 
       console.log('\n🗂️  6 Core Commercial Categories Verified:');
       CATEGORIES.forEach((c) => console.log(`   ✔ [${c.slug}] ${c.name} (${c.vertical})`));
@@ -411,12 +411,12 @@ async function runSeed() {
     // 1. Seed Dark Store
     console.log('\n📦 Step 1: Seeding Dark Store Hub...');
     const darkStoreData = {
-      name: 'Belzo Central Hub 01',
-      code: 'BLZ-DEL-01',
-      address: 'Plot 42, Barakhamba Road, Connaught Place, New Delhi, Delhi 110001',
-      lat: 28.6139,
-      lng: 77.209,
-      service_radius_km: 4.5,
+      name: 'Belzo Joniha Central Hub',
+      code: 'BLZ-UP-JON01',
+      address: 'Joniha Chauraha, Bindki Road, Fatehpur, UP - 212635',
+      lat: 26.0350,
+      lng: 80.4650,
+      service_radius_km: 5.0,
       is_active: true,
     };
 

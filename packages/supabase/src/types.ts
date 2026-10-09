@@ -212,3 +212,13 @@ export interface Database {
     };
   };
 }
+
+export const JONIHA_DARK_STORE_HUB = {
+  name: 'Belzo Joniha Central Hub',
+  code: 'BLZ-UP-JON01',
+  latitude: 26.0350,
+  longitude: 80.4650,
+  service_radius_km: 5.0,
+  address: 'Joniha Chauraha, Bindki Road, Fatehpur, UP - 212635',
+} as const;
+

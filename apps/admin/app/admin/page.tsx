@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   TrendingUp,
@@ -8,110 +8,270 @@ import {
   Bike,
   Clock,
   ArrowUpRight,
-  ArrowDownRight,
-  Store,
-  CheckCircle2,
-  AlertTriangle,
-  RefreshCw,
   ChevronRight,
-  Package,
+  CheckCircle2,
+  RefreshCw,
 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
-const HOURLY_VELOCITY = [
-  { hour: '06:00', orders: 24, gmv: 8200 },
-  { hour: '07:00', orders: 58, gmv: 19400 },
-  { hour: '08:00', orders: 112, gmv: 38200 },
-  { hour: '09:00', orders: 145, gmv: 49800 },
-  { hour: '10:00', orders: 132, gmv: 44200 },
-  { hour: '11:00', orders: 98, gmv: 32600 },
-  { hour: '12:00', orders: 86, gmv: 29100 },
-  { hour: '13:00', orders: 104, gmv: 35400 },
-  { hour: '14:00', orders: 78, gmv: 26500 },
-  { hour: '15:00', orders: 64, gmv: 21800 },
-  { hour: '16:00', orders: 92, gmv: 31200 },
-  { hour: '17:00', orders: 138, gmv: 47100 },
-  { hour: '18:00', orders: 184, gmv: 62800 },
-  { hour: '19:00', orders: 210, gmv: 71400 },
-  { hour: '20:00', orders: 196, gmv: 66800 },
-  { hour: '21:00', orders: 140, gmv: 47600 },
-  { hour: '22:00', orders: 82, gmv: 27900 },
-];
+interface DarkStoreRow {
+  id: string;
+  name: string;
+  code: string;
+  activeOrders: number;
+  readyOrders: number;
+  onlineRiders: number;
+  loadPct: number;
+  status: 'Optimal' | 'High Load' | 'Offline';
+  avgSla: string;
+}
 
-const DARK_STORES_STATUS = [
-  {
-    id: '1',
-    name: 'Belzo Central Hub 01 - Koramangala',
-    code: 'BLZ-BLR-KOR-01',
-    activeOrders: 42,
-    readyOrders: 18,
-    onlineRiders: 19,
-    loadPct: 68,
-    status: 'Optimal',
-    avgSla: '10.8 mins',
-  },
-  {
-    id: '2',
-    name: 'Belzo Indiranagar Hub 02',
-    code: 'BLZ-BLR-IND-02',
-    activeOrders: 56,
-    readyOrders: 24,
-    onlineRiders: 22,
-    loadPct: 84,
-    status: 'High Load',
-    avgSla: '12.1 mins',
-  },
-  {
-    id: '3',
-    name: 'Belzo HSR Layout Hub 03',
-    code: 'BLZ-BLR-HSR-03',
-    activeOrders: 28,
-    readyOrders: 8,
-    onlineRiders: 14,
-    loadPct: 45,
-    status: 'Optimal',
-    avgSla: '9.6 mins',
-  },
-  {
-    id: '4',
-    name: 'Belzo MG Road Hub 04',
-    code: 'BLZ-BLR-MGR-04',
-    activeOrders: 31,
-    readyOrders: 11,
-    onlineRiders: 12,
-    loadPct: 52,
-    status: 'Optimal',
-    avgSla: '11.2 mins',
-  },
-];
+interface OrderMetrics {
+  gmv: number;
+  totalOrdersToday: number;
+  deliveredToday: number;
+  activeToday: number;
+  cancelledToday: number;
+  activeRiders: number;
+  avgSlaMinutes: number | null;
+  hourlyVelocity: { hour: string; orders: number; gmv: number }[];
+  darkStores: DarkStoreRow[];
+}
 
-const TOP_PRODUCTS = [
-  { name: 'Amul Taaza Toned Milk (500 ml)', orders: 384, revenue: '₹13,056', category: 'Grocery' },
-  { name: 'Harvest Gold Brown Bread (400 g)', orders: 212, revenue: '₹10,388', category: 'Grocery' },
-  { name: 'Organic Hass Avocado (2 pcs)', orders: 146, revenue: '₹27,594', category: 'Veggies' },
-  { name: 'Belzo Farm Tomatoes (1 kg)', orders: 198, revenue: '₹7,524', category: 'Veggies' },
-  { name: 'Type-C Braided Cable (1.2 m)', orders: 94, revenue: '₹28,106', category: 'Tech' },
+const DEFAULT_HOURLY = [
+  { hour: '06:00', orders: 0, gmv: 0 },
+  { hour: '08:00', orders: 0, gmv: 0 },
+  { hour: '10:00', orders: 0, gmv: 0 },
+  { hour: '12:00', orders: 0, gmv: 0 },
+  { hour: '14:00', orders: 0, gmv: 0 },
+  { hour: '16:00', orders: 0, gmv: 0 },
+  { hour: '18:00', orders: 0, gmv: 0 },
+  { hour: '20:00', orders: 0, gmv: 0 },
+  { hour: '22:00', orders: 0, gmv: 0 },
 ];
 
 export default function AdminExecutiveDashboard() {
   const [activeBar, setActiveBar] = useState<number | null>(null);
-  const maxOrders = Math.max(...HOURLY_VELOCITY.map((d) => d.orders));
+  const [isLoading, setIsLoading] = useState(true);
+  const [metrics, setMetrics] = useState<OrderMetrics>({
+    gmv: 0,
+    totalOrdersToday: 0,
+    deliveredToday: 0,
+    activeToday: 0,
+    cancelledToday: 0,
+    activeRiders: 0,
+    avgSlaMinutes: null,
+    hourlyVelocity: DEFAULT_HOURLY,
+    darkStores: [],
+  });
+
+  const loadDashboardData = useCallback(async () => {
+    try {
+      // 1. Start of today in UTC / local
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const startOfTodayIso = startOfToday.toISOString();
+
+      // 2. Fetch Orders
+      const { data: allOrders, error: ordersErr } = await supabase
+        .from('orders')
+        .select('*');
+
+      // 3. Fetch Riders
+      const { data: ridersData, error: ridersErr } = await supabase
+        .from('riders')
+        .select('*');
+
+      // 4. Fetch Dark Stores
+      const { data: storesData, error: storesErr } = await supabase
+        .from('dark_stores')
+        .select('*');
+
+      const orders: any[] = (allOrders as any[]) || [];
+      const riders: any[] = (ridersData as any[]) || [];
+      const stores: any[] = (storesData as any[]) || [];
+
+      // Calculate GMV (excluding cancelled)
+      const gmv = orders
+        .filter((o) => o.status !== 'cancelled')
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+      // Orders today filter
+      const ordersToday = orders.filter((o) => {
+        const createdAt = new Date(o.created_at || o.placed_at || 0).getTime();
+        return createdAt >= startOfToday.getTime();
+      });
+
+      const deliveredToday = ordersToday.filter((o) => o.status === 'delivered').length;
+      const activeToday = ordersToday.filter((o) =>
+        ['placed', 'accepted', 'preparing', 'ready_for_pickup', 'out_for_delivery'].includes(o.status)
+      ).length;
+      const cancelledToday = ordersToday.filter((o) => o.status === 'cancelled').length;
+
+      // Active Riders On-Duty
+      const activeRiders = riders.filter((r) => r.is_online === true).length;
+
+      // Avg SLA for delivered orders (updated_at - created_at)
+      const deliveredOrders = orders.filter((o) => o.status === 'delivered' && o.updated_at && o.created_at);
+      let avgSlaMinutes: number | null = null;
+      if (deliveredOrders.length > 0) {
+        const totalMinutes = deliveredOrders.reduce((sum, o) => {
+          const diffMs = new Date(o.updated_at).getTime() - new Date(o.created_at).getTime();
+          return sum + Math.max(1, Math.round(diffMs / 60000));
+        }, 0);
+        avgSlaMinutes = parseFloat((totalMinutes / deliveredOrders.length).toFixed(1));
+      }
+
+      // Hourly velocity distribution for today
+      const hourlyMap: Record<string, { orders: number; gmv: number }> = {
+        '06:00': { orders: 0, gmv: 0 },
+        '08:00': { orders: 0, gmv: 0 },
+        '10:00': { orders: 0, gmv: 0 },
+        '12:00': { orders: 0, gmv: 0 },
+        '14:00': { orders: 0, gmv: 0 },
+        '16:00': { orders: 0, gmv: 0 },
+        '18:00': { orders: 0, gmv: 0 },
+        '20:00': { orders: 0, gmv: 0 },
+        '22:00': { orders: 0, gmv: 0 },
+      };
+
+      ordersToday.forEach((o) => {
+        const date = new Date(o.created_at || o.placed_at || Date.now());
+        const hour = date.getHours();
+        let bucket = '06:00';
+        if (hour >= 21) bucket = '22:00';
+        else if (hour >= 19) bucket = '20:00';
+        else if (hour >= 17) bucket = '18:00';
+        else if (hour >= 15) bucket = '16:00';
+        else if (hour >= 13) bucket = '14:00';
+        else if (hour >= 11) bucket = '12:00';
+        else if (hour >= 9) bucket = '10:00';
+        else if (hour >= 7) bucket = '08:00';
+        else bucket = '06:00';
+
+        hourlyMap[bucket].orders += 1;
+        if (o.status !== 'cancelled') {
+          hourlyMap[bucket].gmv += Number(o.total_amount) || 0;
+        }
+      });
+
+      const hourlyVelocity = Object.entries(hourlyMap).map(([hour, data]) => ({
+        hour,
+        orders: data.orders,
+        gmv: data.gmv,
+      }));
+
+      // Dark stores status matrix
+      const darkStores: DarkStoreRow[] = stores.map((s) => {
+        const storeOrders = orders.filter(
+          (o) => o.store_id === s.id || o.dark_store_id === s.id
+        );
+        const storeActiveOrders = storeOrders.filter((o) =>
+          ['placed', 'accepted', 'preparing', 'ready_for_pickup', 'out_for_delivery'].includes(o.status)
+        ).length;
+        const storeReadyOrders = storeOrders.filter((o) =>
+          ['ready_for_pickup', 'preparing'].includes(o.status)
+        ).length;
+        const storeRiders = riders.filter(
+          (r) => (r.store_id === s.id || r.assigned_dark_store_id === s.id) && r.is_online
+        ).length;
+
+        const maxStoreCapacity = 50;
+        const loadPct = Math.min(100, Math.round((storeActiveOrders / maxStoreCapacity) * 100));
+
+        return {
+          id: s.id,
+          name: s.name || 'Belzo Dark Store',
+          code: s.hub_code || s.code || 'BLZ-HUB',
+          activeOrders: storeActiveOrders,
+          readyOrders: storeReadyOrders,
+          onlineRiders: storeRiders,
+          loadPct,
+          status: !s.is_active ? 'Offline' : loadPct > 80 ? 'High Load' : 'Optimal',
+          avgSla: avgSlaMinutes ? `${avgSlaMinutes} mins` : '--',
+        };
+      });
+
+      setMetrics({
+        gmv,
+        totalOrdersToday: ordersToday.length,
+        deliveredToday,
+        activeToday,
+        cancelledToday,
+        activeRiders,
+        avgSlaMinutes,
+        hourlyVelocity,
+        darkStores,
+      });
+    } catch (err) {
+      console.warn('[Admin Dashboard] Query error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDashboardData();
+
+    // Supabase Realtime Channel Subscription for live zero-reload dashboard sync
+    const channel = supabase
+      .channel('admin-dashboard')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => {
+          loadDashboardData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'riders' },
+        () => {
+          loadDashboardData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'dark_stores' },
+        () => {
+          loadDashboardData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadDashboardData]);
+
+  const maxOrders = Math.max(1, ...metrics.hourlyVelocity.map((d) => d.orders));
 
   return (
     <div className="space-y-8">
       {/* Top Banner / Welcome Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-950">
             Operations & Executive Command
           </h1>
-          <p className="text-xs sm:text-sm text-white/60 mt-1">
-            Real-time telemetry across 4 Dark Stores, courier fleets, and instant order pipeline.
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">
+            Real-time telemetry across Joniha Central Hub and regional dark store micro-fulfillment centers.
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setIsLoading(true);
+              loadDashboardData();
+            }}
+            className="p-2.5 rounded-2xl bg-white border border-black/5 hover:bg-gray-50 text-gray-600 shadow-sm transition-all"
+            title="Refresh Live Metrics"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#FF5E00]' : ''}`} />
+          </button>
           <Link
             href="/admin/orders"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-black shadow-lg shadow-[#FF5E00]/25 transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all active:scale-[0.97]"
           >
             <ShoppingBag className="w-4 h-4" />
             Inspect Live Orders
@@ -119,99 +279,121 @@ export default function AdminExecutiveDashboard() {
         </div>
       </div>
 
-      {/* 4 Summary Stat Cards */}
+      {/* 4 Summary Stat Cards (Apple Studio Light Standard) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* GMV */}
-        <div className="bg-[#170A2D] border border-white/10 rounded-2xl p-5 shadow-lg relative overflow-hidden">
-          <div className="flex items-center justify-between text-white/60 mb-3">
+        <div className="bg-white border border-black/5 rounded-3xl p-5 shadow-[0_2px_8px_rgba(0,0,0,0.03)] relative overflow-hidden">
+          <div className="flex items-center justify-between text-gray-500 mb-3">
             <span className="text-xs font-bold uppercase tracking-wider">Gross Revenue (GMV)</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-200">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-3xl font-black text-white font-mono">₹4,82,950</p>
-          <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold mt-2">
+          <p className="text-3xl font-extrabold text-gray-950 font-mono tabular-nums">
+            ₹{metrics.gmv.toLocaleString('en-IN')}
+          </p>
+          <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-bold mt-2">
             <ArrowUpRight className="w-3.5 h-3.5" />
-            <span>+18.4% WoW</span>
-            <span className="text-white/40 font-normal">vs last Thursday</span>
+            <span>Live Sync</span>
+            <span className="text-gray-400 font-normal">• All settled orders</span>
           </div>
         </div>
 
         {/* Total Orders Today */}
-        <div className="bg-[#170A2D] border border-white/10 rounded-2xl p-5 shadow-lg">
-          <div className="flex items-center justify-between text-white/60 mb-3">
+        <div className="bg-white border border-black/5 rounded-3xl p-5 shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
+          <div className="flex items-center justify-between text-gray-500 mb-3">
             <span className="text-xs font-bold uppercase tracking-wider">Orders Today</span>
-            <div className="w-8 h-8 rounded-lg bg-[#FF5E00]/10 flex items-center justify-center text-[#FF5E00]">
+            <div className="w-8 h-8 rounded-xl bg-orange-50 flex items-center justify-center text-[#FF5E00] border border-orange-200">
               <ShoppingBag className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-3xl font-black text-white font-mono">1,482</p>
+          <p className="text-3xl font-extrabold text-gray-950 font-mono tabular-nums">
+            {metrics.totalOrdersToday.toLocaleString('en-IN')}
+          </p>
           <div className="flex items-center gap-2 text-xs font-semibold mt-2">
-            <span className="text-emerald-400 font-bold">1,310 Delivered</span>
-            <span className="text-white/30">•</span>
-            <span className="text-[#FF5E00] font-bold">157 Active</span>
-            <span className="text-white/30">•</span>
-            <span className="text-red-400 font-bold">15 Cancelled</span>
+            <span className="text-emerald-700 font-bold tabular-nums">
+              {metrics.deliveredToday} Delivered
+            </span>
+            <span className="text-gray-300">•</span>
+            <span className="text-[#FF5E00] font-bold tabular-nums">
+              {metrics.activeToday} Active
+            </span>
+            <span className="text-gray-300">•</span>
+            <span className="text-red-600 font-bold tabular-nums">
+              {metrics.cancelledToday} Cancelled
+            </span>
           </div>
         </div>
 
         {/* Active Fleet */}
-        <div className="bg-[#170A2D] border border-white/10 rounded-2xl p-5 shadow-lg">
-          <div className="flex items-center justify-between text-white/60 mb-3">
+        <div className="bg-white border border-black/5 rounded-3xl p-5 shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
+          <div className="flex items-center justify-between text-gray-500 mb-3">
             <span className="text-xs font-bold uppercase tracking-wider">Active Fleet On-Duty</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+            <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-200">
               <Bike className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-3xl font-black text-white font-mono">67 Riders</p>
-          <div className="flex items-center gap-1.5 text-xs text-blue-400 font-bold mt-2">
-            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-            <span>56 in active delivery • 11 at hub buffer</span>
+          <p className="text-3xl font-extrabold text-gray-950 font-mono tabular-nums">
+            {metrics.activeRiders} {metrics.activeRiders === 1 ? 'Rider' : 'Riders'}
+          </p>
+          <div className="flex items-center gap-1.5 text-xs text-blue-700 font-semibold mt-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                metrics.activeRiders > 0 ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'
+              }`}
+            />
+            <span>
+              {metrics.activeRiders > 0
+                ? `${metrics.activeRiders} active couriers online`
+                : 'No couriers currently on-duty'}
+            </span>
           </div>
         </div>
 
         {/* Avg Delivery Time */}
-        <div className="bg-[#170A2D] border border-white/10 rounded-2xl p-5 shadow-lg">
-          <div className="flex items-center justify-between text-white/60 mb-3">
+        <div className="bg-white border border-black/5 rounded-3xl p-5 shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
+          <div className="flex items-center justify-between text-gray-500 mb-3">
             <span className="text-xs font-bold uppercase tracking-wider">Average SLA Time</span>
-            <div className="w-8 h-8 rounded-lg bg-[#FAA307]/10 flex items-center justify-center text-[#FAA307]">
+            <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 border border-amber-200">
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-3xl font-black text-white font-mono">11.4 Mins</p>
-          <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold mt-2">
+          <p className="text-3xl font-extrabold text-gray-950 font-mono tabular-nums">
+            {metrics.avgSlaMinutes !== null ? `${metrics.avgSlaMinutes} Mins` : '--'}
+          </p>
+          <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-bold mt-2">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>97.2% under 15m guarantee SLA</span>
+            <span>Target: 12-Minute Instant SLA</span>
           </div>
         </div>
       </div>
 
       {/* Hourly Velocity Chart Card */}
-      <div className="bg-[#170A2D] border border-white/10 rounded-2xl p-6 shadow-xl">
+      <div className="bg-white border border-black/5 rounded-3xl p-6 shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
           <div>
-            <h2 className="text-base font-black text-white">
+            <h2 className="text-base font-extrabold text-gray-950">
               Hourly Order Velocity & Intake Flow
             </h2>
-            <p className="text-xs text-white/50">
-              Orders placed per hour across all active dark store micro-hubs (06:00 - 22:00)
+            <p className="text-xs text-gray-500">
+              Orders placed per hour across all active dark store micro-hubs today
             </p>
           </div>
           {activeBar !== null && (
             <div className="text-right">
               <span className="text-xs font-mono font-bold text-[#FF5E00]">
-                {HOURLY_VELOCITY[activeBar].hour}: {HOURLY_VELOCITY[activeBar].orders} orders
+                {metrics.hourlyVelocity[activeBar].hour}: {metrics.hourlyVelocity[activeBar].orders} orders
               </span>
-              <span className="text-xs text-white/50 ml-2 font-mono">
-                (₹{HOURLY_VELOCITY[activeBar].gmv.toLocaleString('en-IN')})
+              <span className="text-xs text-gray-400 ml-2 font-mono">
+                (₹{metrics.hourlyVelocity[activeBar].gmv.toLocaleString('en-IN')})
               </span>
             </div>
           )}
         </div>
 
         {/* SVG / Flex Bar Chart */}
-        <div className="h-48 flex items-end gap-2 pt-6 pb-2 border-b border-white/10">
-          {HOURLY_VELOCITY.map((item, idx) => {
+        <div className="h-48 flex items-end gap-2 pt-6 pb-2 border-b border-gray-100">
+          {metrics.hourlyVelocity.map((item, idx) => {
             const heightPct = (item.orders / maxOrders) * 100;
             const isHovered = activeBar === idx;
             return (
@@ -222,18 +404,20 @@ export default function AdminExecutiveDashboard() {
                 className="flex-1 flex flex-col items-center h-full justify-end group cursor-pointer"
               >
                 <div
-                  style={{ height: `${heightPct}%` }}
+                  style={{ height: item.orders > 0 ? `${Math.max(6, heightPct)}%` : '4px' }}
                   className={`w-full rounded-t-md transition-all duration-200 ${
-                    isHovered
-                      ? 'bg-[#FF5E00] shadow-lg shadow-[#FF5E00]/40'
-                      : 'bg-white/15 group-hover:bg-white/30'
+                    item.orders === 0
+                      ? 'bg-gray-100 group-hover:bg-gray-200'
+                      : isHovered
+                      ? 'bg-[#FF5E00] shadow-md shadow-[#FF5E00]/30'
+                      : 'bg-orange-100/80 group-hover:bg-[#FF5E00]/60'
                   }`}
                 />
               </div>
             );
           })}
         </div>
-        <div className="flex justify-between text-[10px] font-mono text-white/40 pt-2">
+        <div className="flex justify-between text-[10px] font-mono text-gray-400 pt-2">
           <span>06:00</span>
           <span>10:00</span>
           <span>14:00</span>
@@ -243,19 +427,19 @@ export default function AdminExecutiveDashboard() {
       </div>
 
       {/* Dark Stores Status Matrix */}
-      <div className="bg-[#170A2D] border border-white/10 rounded-2xl overflow-hidden shadow-xl">
-        <div className="p-5 border-b border-white/10 flex items-center justify-between">
+      <div className="bg-white border border-black/5 rounded-3xl overflow-hidden shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
+        <div className="p-5 border-b border-black/5 flex items-center justify-between">
           <div>
-            <h2 className="text-base font-black text-white">
+            <h2 className="text-base font-extrabold text-gray-950">
               Dark Stores Operational Matrix
             </h2>
-            <p className="text-xs text-white/50">
-              Live capacity and packing load across distributed urban micro-fulfillment centers.
+            <p className="text-xs text-gray-500">
+              Live capacity and packing load across distributed regional micro-fulfillment centers.
             </p>
           </div>
           <Link
             href="/admin/stores"
-            className="text-xs font-bold text-[#FF5E00] hover:text-[#FFA066] flex items-center gap-1"
+            className="text-xs font-bold text-[#FF5E00] hover:text-[#E05300] flex items-center gap-1"
           >
             Manage Stores
             <ChevronRight className="w-3.5 h-3.5" />
@@ -264,7 +448,7 @@ export default function AdminExecutiveDashboard() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-black/30 border-b border-white/10 text-white/40 uppercase font-black tracking-wider">
+            <thead className="bg-gray-50/80 border-b border-black/5 text-gray-500 uppercase font-bold tracking-wider">
               <tr>
                 <th className="py-3.5 px-4">Dark Store Hub</th>
                 <th className="py-3.5 px-4">Hub Code</th>
@@ -276,30 +460,30 @@ export default function AdminExecutiveDashboard() {
                 <th className="py-3.5 px-4 text-right">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
-              {DARK_STORES_STATUS.map((store) => (
-                <tr key={store.id} className="hover:bg-white/[0.02] transition-colors">
-                  <td className="py-3.5 px-4 font-bold text-white">
+            <tbody className="divide-y divide-gray-100">
+              {metrics.darkStores.map((store) => (
+                <tr key={store.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="py-3.5 px-4 font-bold text-gray-900">
                     {store.name}
                   </td>
-                  <td className="py-3.5 px-4 font-mono text-white/50">
+                  <td className="py-3.5 px-4 font-mono text-gray-500">
                     {store.code}
                   </td>
-                  <td className="py-3.5 px-4 font-mono font-bold text-white">
+                  <td className="py-3.5 px-4 font-mono font-bold text-gray-900 tabular-nums">
                     {store.activeOrders}
                   </td>
-                  <td className="py-3.5 px-4 font-mono text-[#FAA307]">
+                  <td className="py-3.5 px-4 font-mono text-amber-600 font-bold tabular-nums">
                     {store.readyOrders}
                   </td>
-                  <td className="py-3.5 px-4 font-mono text-blue-400">
+                  <td className="py-3.5 px-4 font-mono text-blue-600 font-bold tabular-nums">
                     {store.onlineRiders}
                   </td>
-                  <td className="py-3.5 px-4 font-mono text-white/80">
+                  <td className="py-3.5 px-4 font-mono text-gray-700 tabular-nums">
                     {store.avgSla}
                   </td>
                   <td className="py-3.5 px-4">
                     <div className="w-28 flex items-center gap-2">
-                      <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div
                           style={{ width: `${store.loadPct}%` }}
                           className={`h-full rounded-full ${
@@ -307,26 +491,32 @@ export default function AdminExecutiveDashboard() {
                               ? 'bg-red-500'
                               : store.loadPct > 60
                               ? 'bg-[#FF5E00]'
-                              : 'bg-emerald-400'
+                              : 'bg-emerald-500'
                           }`}
                         />
                       </div>
-                      <span className="font-mono text-[11px] text-white/60">
+                      <span className="font-mono text-[11px] text-gray-500 tabular-nums">
                         {store.loadPct}%
                       </span>
                     </div>
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
                         store.status === 'Optimal'
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : store.status === 'High Load'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-red-50 text-red-700 border-red-200'
                       }`}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
-                          store.status === 'Optimal' ? 'bg-emerald-400' : 'bg-amber-400'
+                          store.status === 'Optimal'
+                            ? 'bg-emerald-500'
+                            : store.status === 'High Load'
+                            ? 'bg-amber-500'
+                            : 'bg-red-500'
                         }`}
                       />
                       {store.status}
@@ -334,6 +524,14 @@ export default function AdminExecutiveDashboard() {
                   </td>
                 </tr>
               ))}
+              {metrics.darkStores.length === 0 && !isLoading && (
+                <tr>
+                  <td colSpan={8} className="py-12 text-center text-gray-400">
+                    <p className="text-xs font-semibold text-gray-700">No Fulfillment Hubs Registered</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Configure your first dark store hub in Store Operations.</p>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

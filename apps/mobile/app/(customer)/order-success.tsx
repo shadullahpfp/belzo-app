@@ -101,7 +101,7 @@ export default function OrderSuccessScreen() {
         {/* Success Headlines */}
         <Text style={styles.successTitle}>Order Confirmed!</Text>
         <Text style={styles.successSubtitle}>
-          Dark Store Koramangala Hub is packing your items right now.
+          Dark Store Belzo Joniha Hub is packing your items right now.
         </Text>
 
         {/* Order ID Pill */}
@@ -261,17 +261,29 @@ const styles = StyleSheet.create({
   orderIdText: {
     fontSize: 14,
     fontWeight: '900',
-    color: '#2A134D',
+    color: '#1C1C1E',
+    fontVariant: ['tabular-nums'],
   },
   countdownCard: {
     width: '100%',
-    backgroundColor: '#2A134D',
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 24,
     alignItems: 'center',
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 94, 0, 0.3)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   countdownTopRow: {
     flexDirection: 'row',
@@ -294,15 +306,16 @@ const styles = StyleSheet.create({
   countdownTimer: {
     fontSize: 48,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: '#1C1C1E',
     fontVariant: ['tabular-nums'],
     letterSpacing: -1,
   },
   countdownSub: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: '#8E8E93',
     marginTop: 4,
     marginBottom: 20,
+    fontWeight: '500',
   },
   timelineRow: {
     flexDirection: 'row',
@@ -315,7 +328,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#E5E5EA',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -333,7 +346,7 @@ const styles = StyleSheet.create({
   timelineTrack: {
     flex: 1,
     height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#E5E5EA',
   },
   timelineTrackDone: {
     backgroundColor: '#34C759',
@@ -345,12 +358,12 @@ const styles = StyleSheet.create({
   },
   timelineLabel: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#8E8E93',
     fontWeight: '600',
   },
   timelineLabelActive: {
     fontSize: 11,
-    color: '#FFFFFF',
+    color: '#1C1C1E',
     fontWeight: '700',
   },
   summaryCard: {
@@ -424,7 +437,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   homeButtonText: {
-    color: '#2A134D',
+    color: '#1C1C1E',
     fontSize: 14,
     fontWeight: '700',
   },

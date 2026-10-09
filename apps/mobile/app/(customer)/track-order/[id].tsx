@@ -67,15 +67,15 @@ export default function TrackOrderScreen() {
     id: orderId,
     short_code: orderId.startsWith('BLZ-') ? orderId : `BLZ-${orderId.substring(0, 4).toUpperCase()}`,
     status: 'out_for_delivery',
-    store_name: 'Belzo Central Hub 01 (Koramangala)',
-    store_address: '80 Feet Road, 4th Block Koramangala',
-    customer_name: 'Ananya Deshmukh',
-    customer_address: 'Flat 402, Lotus Orchid, 5th Main, 4th Block Koramangala',
+    store_name: 'Belzo Joniha Central Hub 01',
+    store_address: 'Joniha Chauraha, Bindki Road, Fatehpur (212635)',
+    customer_name: 'Customer',
+    customer_address: 'Ward No. 4, Shahbajpur, Joniha, Bindki',
     delivery_pin: '4421',
-    rider_name: 'Suresh Kumar',
-    rider_phone: '+91 98450 11223',
+    rider_name: 'Assigning Speed Partner...',
+    rider_phone: '+91 98765 00000',
     rider_rating: 4.95,
-    rider_vehicle: 'KA-01-EQ-9421 (EV Scooter)',
+    rider_vehicle: 'Speed partner allocation in progress',
     payment_method: 'Prepaid UPI (Google Pay)',
     subtotal: 242,
     delivery_fee: 25,
@@ -98,28 +98,62 @@ export default function TrackOrderScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Realtime Supabase Channel Listener
+  const formatDeliveryAddress = (raw: any): string => {
+    if (!raw) return 'Ward No. 4, Shahbajpur, Joniha, Bindki';
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return formatDeliveryAddress(parsed);
+      } catch {
+        return raw;
+      }
+    }
+    const parts = [raw.house_flat_no, raw.apartment_road_area, raw.city].filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : 'Ward No. 4, Shahbajpur, Joniha, Bindki';
+  };
+
   useEffect(() => {
     async function fetchOrderData() {
       try {
         const { data, error } = await supabase
           .from('orders')
-          .select('*, dark_stores(name, address)')
+          .select('*, dark_stores:store_id(name, address), riders:rider_id(vehicle_number, vehicle_type, rating, profiles:id(full_name, phone)), profiles:customer_id(full_name), order_items(product_name_snapshot, quantity, unit_price)')
           .eq('id', orderId)
-          .single();
+          .maybeSingle();
 
         if (!error && data) {
+          const parsedItems = Array.isArray(data.order_items) && data.order_items.length > 0
+            ? data.order_items.map((it: any) => ({
+                name: it.product_name_snapshot || 'Item',
+                unit: '1 unit',
+                quantity: Number(it.quantity) || 1,
+                price: Number(it.unit_price) || 0,
+              }))
+            : undefined;
+
+          const riderName = (data.riders as any)?.profiles?.full_name || (data.rider_id ? 'Courier Partner' : 'Assigning Speed Partner...');
+          const riderVehicle = (data.riders as any)?.vehicle_number
+            ? `${(data.riders as any).vehicle_number} (${(data.riders as any).vehicle_type || 'EV'})`
+            : (data.rider_id ? 'Courier Vehicle' : 'Speed partner allocation in progress');
+
           setOrder((prev) => ({
             ...prev,
             status: (data.status as OrderStatus) || prev.status,
             delivery_pin: data.delivery_pin || prev.delivery_pin,
             total_amount: Number(data.total_amount) || prev.total_amount,
-            customer_address: data.delivery_address || prev.customer_address,
-            store_name: data.dark_stores?.name || prev.store_name,
-            store_address: data.dark_stores?.address || prev.store_address,
+            customer_name: (data as any).profiles?.full_name || prev.customer_name,
+            customer_address: formatDeliveryAddress(data.delivery_address),
+            store_name: (data.dark_stores as any)?.name || prev.store_name,
+            store_address: (data.dark_stores as any)?.address || prev.store_address,
+            rider_name: riderName,
+            rider_phone: (data.riders as any)?.profiles?.phone || prev.rider_phone,
+            rider_vehicle: riderVehicle,
+            rider_rating: Number((data.riders as any)?.rating) || prev.rider_rating,
+            ...(parsedItems ? { items: parsedItems } : {}),
           }));
         }
       } catch {
-        // Mock fallback
+        // Safe fallback for demo resilience
       }
     }
 
@@ -137,13 +171,17 @@ export default function TrackOrderScreen() {
           filter: `id=eq.${orderId}`,
         },
         (payload: any) => {
-          if (payload.new && payload.new.status) {
+          if (payload.new) {
             try {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch {}
 
-            const nextStatus = payload.new.status as OrderStatus;
-            setOrder((prev) => ({ ...prev, status: nextStatus }));
+            const nextStatus = (payload.new.status as OrderStatus) || undefined;
+            setOrder((prev) => ({
+              ...prev,
+              ...(nextStatus ? { status: nextStatus } : {}),
+              ...(payload.new.delivery_pin ? { delivery_pin: payload.new.delivery_pin } : {}),
+            }));
 
             if (nextStatus === 'delivered') {
               setShowRatingModal(true);
@@ -243,11 +281,17 @@ export default function TrackOrderScreen() {
       {/* Translucent Apple Top Bar */}
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity
-          onPress={() => router.replace('/(customer)/home' as any)}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/(customer)/home' as any);
+            }
+          }}
           style={styles.backBtn}
           activeOpacity={0.7}
         >
-          <ArrowLeft size={20} color="#FFFFFF" />
+          <ArrowLeft size={20} color="#000000" />
         </TouchableOpacity>
 
         <View style={styles.topBarCenter}>
@@ -272,10 +316,6 @@ export default function TrackOrderScreen() {
               <Animated.View style={[styles.liveDot, { transform: [{ scale: pulseAnim }] }]} />
               <Text style={styles.liveBeaconText}>LIVE GPS CORRIDOR</Text>
             </View>
-            <TouchableOpacity onPress={handleCycleStatus} style={styles.demoCycleBtn}>
-              <Zap size={11} color="#FF7A29" />
-              <Text style={styles.demoCycleBtnText}>Simulate Next Stage</Text>
-            </TouchableOpacity>
           </View>
 
           {/* Route Map Graphic Line */}
@@ -296,7 +336,7 @@ export default function TrackOrderScreen() {
 
             {/* Store Hub Node */}
             <View style={styles.hubNode}>
-              <Building2 size={16} color="#FFFFFF" />
+              <Building2 size={16} color="#FF5E00" />
             </View>
 
             {/* Rider Beacon Position */}
@@ -371,7 +411,7 @@ export default function TrackOrderScreen() {
 
             <View style={styles.stepLine} />
 
-            {/* Step 2: Packed */}
+            {/* Step 2: Packed at Joniha Hub */}
             <View style={styles.stepCol}>
               <View
                 style={[
@@ -385,12 +425,12 @@ export default function TrackOrderScreen() {
               >
                 <CheckCircle2 size={14} color="#FFFFFF" />
               </View>
-              <Text style={styles.stepTitle}>Packed</Text>
+              <Text style={styles.stepTitle}>Packed at Joniha Hub</Text>
             </View>
 
             <View style={styles.stepLine} />
 
-            {/* Step 3: On The Way */}
+            {/* Step 3: Out for Delivery */}
             <View style={styles.stepCol}>
               <View
                 style={[
@@ -402,12 +442,12 @@ export default function TrackOrderScreen() {
               >
                 <Bike size={14} color="#FFFFFF" />
               </View>
-              <Text style={styles.stepTitle}>On the Way</Text>
+              <Text style={styles.stepTitle}>Out for Delivery</Text>
             </View>
 
             <View style={styles.stepLine} />
 
-            {/* Step 4: Arrived */}
+            {/* Step 4: Delivered */}
             <View style={styles.stepCol}>
               <View
                 style={[
@@ -417,7 +457,7 @@ export default function TrackOrderScreen() {
               >
                 <CheckCircle2 size={14} color="#FFFFFF" />
               </View>
-              <Text style={styles.stepTitle}>Arrived</Text>
+              <Text style={styles.stepTitle}>Delivered</Text>
             </View>
           </View>
         </View>
@@ -432,8 +472,7 @@ export default function TrackOrderScreen() {
           <Text style={styles.pinDigits}>{order.delivery_pin}</Text>
 
           <Text style={styles.pinInstructions}>
-            Share this 4-digit code with your courier partner only when you inspect and receive your
-            order.
+            Share this PIN with your rider upon arrival.
           </Text>
         </View>
 
@@ -478,9 +517,9 @@ export default function TrackOrderScreen() {
             <View style={styles.drawerPriceGroup}>
               <Text style={styles.drawerPrice}>₹{order.total_amount}</Text>
               {itemsExpanded ? (
-                <ChevronUp size={18} color="rgba(255,255,255,0.6)" />
+                <ChevronUp size={18} color="#6B7280" />
               ) : (
-                <ChevronDown size={18} color="rgba(255,255,255,0.6)" />
+                <ChevronDown size={18} color="#6B7280" />
               )}
             </View>
           </TouchableOpacity>
@@ -567,7 +606,7 @@ export default function TrackOrderScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#0F061F',
+    backgroundColor: '#F2F2F7',
   },
   topBar: {
     flexDirection: 'row',
@@ -575,15 +614,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 18,
     paddingBottom: 14,
-    backgroundColor: '#1E0E38',
-    borderBottomWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
   },
   backBtn: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#F2F2F7',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -593,13 +632,13 @@ const styles = StyleSheet.create({
   topBarSub: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#FF7A29',
+    color: '#FF5E00',
     letterSpacing: 0.6,
   },
   orderCodePill: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
     fontFamily: 'monospace',
     marginTop: 1,
   },
@@ -607,29 +646,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255, 94, 0, 0.12)',
+    backgroundColor: '#FFF4EB',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 94, 0, 0.3)',
+    borderWidth: 0.5,
+    borderColor: '#FED7AA',
   },
   elapsedText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#FF7A29',
+    color: '#EA580C',
     fontVariant: ['tabular-nums'],
   },
   content: {
     padding: 18,
   },
   canvasCard: {
-    backgroundColor: '#1E0E38',
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
     marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   canvasHeader: {
     flexDirection: 'row',
@@ -641,36 +685,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(52, 199, 89, 0.12)',
+    backgroundColor: '#F0FDF4',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: '#BBF7D0',
   },
   liveDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#34C759',
+    backgroundColor: '#16A34A',
   },
   liveBeaconText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#34C759',
+    color: '#15803D',
     letterSpacing: 0.6,
   },
   demoCycleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255, 94, 0, 0.12)',
+    backgroundColor: '#FFF7ED',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
+    borderWidth: 0.5,
+    borderColor: '#FFEDD5',
   },
   demoCycleBtnText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#FF7A29',
+    color: '#C2410C',
   },
   routeGraphicContainer: {
     height: 52,
@@ -680,7 +728,7 @@ const styles = StyleSheet.create({
   },
   routeTrackBg: {
     height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: '#E5E7EB',
     borderRadius: 2,
     marginHorizontal: 16,
   },
@@ -697,7 +745,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#2A134D',
+    backgroundColor: '#FFF4EB',
     borderWidth: 2,
     borderColor: '#FF5E00',
     justifyContent: 'center',
@@ -713,9 +761,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#FF5E00',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
-    elevation: 8,
+    elevation: 6,
   },
   riderPulseRing: {
     position: 'absolute',
@@ -739,37 +787,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingTop: 8,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderTopWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   nodeLabelTitle: {
     fontSize: 10,
     fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: '#6B7280',
     textTransform: 'uppercase',
   },
   nodeLabelSub: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#111827',
     marginTop: 2,
   },
   milestoneCard: {
-    backgroundColor: '#1E0E38',
-    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
     padding: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
     marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   milestoneHeadline: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
   },
   milestoneSubhead: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.55)',
+    color: '#6B7280',
     marginTop: 2,
     marginBottom: 18,
   },
@@ -797,28 +850,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF5E00',
   },
   stepDotInactive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#E5E7EB',
   },
   stepTitle: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#4B5563',
     textAlign: 'center',
   },
   stepLine: {
     flex: 1,
     height: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#E5E7EB',
     marginBottom: 18,
   },
   pinCard: {
-    backgroundColor: '#2A134D',
-    borderRadius: 22,
+    backgroundColor: '#FFF4EB',
+    borderRadius: 24,
     padding: 20,
     borderWidth: 1.5,
     borderColor: '#FF5E00',
     alignItems: 'center',
     marginBottom: 16,
+    shadowColor: '#FF5E00',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
   },
   pinHeaderRow: {
     flexDirection: 'row',
@@ -829,20 +887,20 @@ const styles = StyleSheet.create({
   pinHeaderTitle: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#FF7A29',
+    color: '#C2410C',
     letterSpacing: 0.8,
   },
   pinDigits: {
-    fontSize: 40,
+    fontSize: 36,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
     letterSpacing: 8,
     marginVertical: 4,
   },
   pinInstructions: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: '#9A3412',
     textAlign: 'center',
     lineHeight: 16,
     paddingHorizontal: 12,
@@ -850,19 +908,24 @@ const styles = StyleSheet.create({
   courierCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E0E38',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
     marginBottom: 16,
     gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   courierAvatar: {
     width: 46,
     height: 46,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 94, 0, 0.2)',
+    backgroundColor: '#FFF4EB',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -882,13 +945,15 @@ const styles = StyleSheet.create({
   courierName: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
   },
   ratingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: 'rgba(250, 163, 7, 0.15)',
+    backgroundColor: '#FEFCE8',
+    borderWidth: 0.5,
+    borderColor: '#FEF9C3',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
@@ -896,17 +961,17 @@ const styles = StyleSheet.create({
   ratingText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#FAA307',
+    color: '#A16207',
   },
   courierVehicle: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.65)',
+    color: '#6B7280',
     marginTop: 2,
     fontFamily: 'monospace',
   },
   courierSla: {
     fontSize: 10,
-    color: '#34C759',
+    color: '#15803D',
     marginTop: 2,
   },
   callRiderBtn: {
@@ -916,13 +981,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#34C759',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#34C759',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   drawerCard: {
-    backgroundColor: '#1E0E38',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   drawerHeader: {
     flexDirection: 'row',
@@ -933,11 +1008,11 @@ const styles = StyleSheet.create({
   drawerTitle: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
   },
   drawerSubtitle: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#6B7280',
     marginTop: 2,
   },
   drawerPriceGroup: {
@@ -948,37 +1023,37 @@ const styles = StyleSheet.create({
   drawerPrice: {
     fontSize: 15,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   drawerBody: {
     paddingHorizontal: 16,
     paddingBottom: 16,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderTopWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   drawerItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.04)',
+    borderBottomWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.04)',
   },
   itemName: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#111827',
   },
   itemUnit: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: '#6B7280',
     marginTop: 1,
   },
   itemPrice: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   billSplit: {
@@ -991,23 +1066,23 @@ const styles = StyleSheet.create({
   },
   billKey: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#6B7280',
   },
   billVal: {
     fontSize: 12,
-    color: '#FFFFFF',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   billRowTotal: {
     paddingTop: 8,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderTopWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
     marginTop: 4,
   },
   billKeyTotal: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
   },
   billValTotal: {
     fontSize: 15,
@@ -1017,26 +1092,31 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(10, 4, 20, 0.85)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   modalCard: {
-    backgroundColor: '#1E0E38',
+    backgroundColor: '#FFFFFF',
     borderRadius: 28,
     padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
     alignItems: 'center',
     width: '100%',
     maxWidth: 360,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 6,
   },
   celebrateIcon: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: 'rgba(255, 94, 0, 0.18)',
+    backgroundColor: '#FFF4EB',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 14,
@@ -1044,12 +1124,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: '#111827',
     marginBottom: 6,
   },
   modalSubtitle: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.65)',
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 20,
@@ -1069,6 +1149,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     width: '100%',
     alignItems: 'center',
+    shadowColor: '#FF5E00',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   submitRatingBtnText: {
     fontSize: 14,

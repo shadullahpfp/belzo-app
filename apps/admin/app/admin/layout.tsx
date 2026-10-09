@@ -17,10 +17,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck,
   Headphones,
-  Bell,
-  Search,
   CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
@@ -39,10 +36,10 @@ const NAV_ITEMS = [
 
 const DARK_STORES = [
   { id: 'all', name: 'All Dark Stores (Global View)' },
-  { id: 'blr-kor-01', name: 'Belzo Central Hub - Koramangala (01)' },
-  { id: 'blr-ind-02', name: 'Belzo Indiranagar Hub (02)' },
-  { id: 'blr-hsr-03', name: 'Belzo HSR Layout Hub (03)' },
-  { id: 'blr-mgr-04', name: 'Belzo MG Road Hub (04)' },
+  { id: 'blz-up-jon01', name: 'Belzo Joniha Central Hub (UP-01)' },
+  { id: 'blz-up-bin02', name: 'Belzo Bindki Town Hub (UP-02)' },
+  { id: 'blz-up-ftp03', name: 'Belzo Fatehpur City Hub (UP-03)' },
+  { id: 'blz-up-knp04', name: 'Belzo Kanpur South Hub (UP-04)' },
 ];
 
 export default function AdminLayout({
@@ -56,21 +53,21 @@ export default function AdminLayout({
   const [showHubDropdown, setShowHubDropdown] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#0E0919] text-white flex font-sans antialiased selection:bg-[#FF5E00] selection:text-white">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-[#F8F9FA] text-gray-900 flex font-sans antialiased selection:bg-[#FF5E00] selection:text-white">
+      {/* Sidebar (Apple Studio Light) */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 bg-[#160B2A]/95 backdrop-blur-xl border-r border-white/10 flex flex-col justify-between transition-all duration-300 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 bg-white/95 backdrop-blur-xl border-r border-black/5 flex flex-col justify-between transition-all duration-300 shadow-[1px_0_4px_rgba(0,0,0,0.02)] ${
           isCollapsed ? 'w-20' : 'w-64'
         }`}
       >
         <div>
           {/* Logo & Brand Header */}
-          <div className="h-16 flex items-center justify-between px-4 border-b border-white/10">
+          <div className="h-16 flex items-center justify-between px-4 border-b border-black/5">
             <Link
               href="/admin"
               className="flex items-center gap-3 overflow-hidden"
             >
-              <div className="w-10 h-10 rounded-xl bg-white/10 p-1 flex items-center justify-center border border-white/15 shadow-md shrink-0">
+              <div className="w-10 h-10 rounded-2xl bg-orange-50 p-1 flex items-center justify-center border border-orange-200 shadow-sm shrink-0">
                 <Image
                   src="/logo.png"
                   alt="Belzo Logo"
@@ -83,14 +80,14 @@ export default function AdminLayout({
               {!isCollapsed && (
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-extrabold text-base tracking-tight text-white">
+                    <span className="font-extrabold text-base tracking-tight text-gray-950">
                       Belzo
                     </span>
-                    <span className="text-[10px] uppercase font-black px-1.5 py-0.5 rounded bg-[#FF5E00] text-white tracking-wider">
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-[#FF5E00] text-white tracking-wider">
                       Admin
                     </span>
                   </div>
-                  <p className="text-[11px] text-white/50 font-medium truncate">
+                  <p className="text-[11px] text-gray-400 font-medium truncate">
                     Enterprise Control Center
                   </p>
                 </div>
@@ -99,7 +96,7 @@ export default function AdminLayout({
           </div>
 
           {/* Nav Items */}
-          <nav className="p-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-220px)]">
+          <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-220px)]">
             {NAV_ITEMS.map((item) => {
               const isActive =
                 item.href === '/admin'
@@ -112,10 +109,10 @@ export default function AdminLayout({
                   key={item.href}
                   href={item.href}
                   title={isCollapsed ? item.label : undefined}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all ${
                     isActive
-                      ? 'bg-[#FF5E00] text-white shadow-lg shadow-[#FF5E00]/25'
-                      : 'text-white/70 hover:bg-white/5 hover:text-white'
+                      ? 'bg-[#FF5E00] text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-gray-100/80 hover:text-gray-950'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
@@ -127,25 +124,25 @@ export default function AdminLayout({
         </div>
 
         {/* Bottom Operator Quick-Switch & Collapse Button */}
-        <div className="p-3 border-t border-white/10 space-y-2">
+        <div className="p-3 border-t border-black/5 space-y-2">
           <Link
             href="/operator"
-            className={`flex items-center gap-3 px-3 py-2 rounded-xl bg-[#2A134D] hover:bg-[#3E1B6B] text-white text-xs font-bold border border-white/10 transition-all ${
+            className={`flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-orange-50 hover:bg-orange-100 text-[#FF5E00] text-xs font-bold border border-orange-200 transition-all ${
               isCollapsed ? 'justify-center' : ''
             }`}
           >
-            <Headphones className="w-4 h-4 text-[#FAA307] shrink-0" />
+            <Headphones className="w-4 h-4 text-[#FF5E00] shrink-0" />
             {!isCollapsed && (
               <div className="flex-1 flex items-center justify-between">
                 <span>Operator Terminal</span>
-                <ExternalLink className="w-3 h-3 text-white/40" />
+                <ExternalLink className="w-3 h-3 text-[#FF5E00]/60" />
               </div>
             )}
           </Link>
 
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="w-full flex items-center justify-center gap-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-xs font-bold transition-all"
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-900 text-xs font-semibold transition-all"
           >
             {isCollapsed ? (
               <ChevronRight className="w-4 h-4" />
@@ -166,23 +163,23 @@ export default function AdminLayout({
         }`}
       >
         {/* Top Header Bar */}
-        <header className="sticky top-0 z-30 h-16 bg-[#0E0919]/90 backdrop-blur-md border-b border-white/10 px-6 flex items-center justify-between">
+        <header className="sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-md border-b border-black/5 px-6 flex items-center justify-between shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
           {/* Active Store Switcher Dropdown */}
           <div className="relative">
             <button
               onClick={() => setShowHubDropdown(!showHubDropdown)}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold transition-all"
+              className="flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-gray-100 hover:bg-gray-200 border border-black/5 text-xs font-bold text-gray-800 transition-all"
             >
               <Store className="w-3.5 h-3.5 text-[#FF5E00]" />
-              <span className="text-white/90">
+              <span>
                 {DARK_STORES.find((s) => s.id === selectedHub)?.name}
               </span>
-              <ChevronDown className="w-3.5 h-3.5 text-white/40" />
+              <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
             </button>
 
             {showHubDropdown && (
-              <div className="absolute left-0 top-full mt-2 w-72 bg-[#1B0E33] border border-white/15 rounded-2xl p-2 shadow-2xl z-50 animate-in fade-in">
-                <p className="text-[10px] font-black uppercase text-white/40 px-2 py-1">
+              <div className="absolute left-0 top-full mt-2 w-72 bg-white border border-black/5 rounded-3xl p-2 shadow-2xl z-50 animate-in fade-in">
+                <p className="text-[10px] font-bold uppercase text-gray-400 px-3 py-1.5">
                   Filter by Fulfillment Hub
                 </p>
                 {DARK_STORES.map((hub) => (
@@ -192,10 +189,10 @@ export default function AdminLayout({
                       setSelectedHub(hub.id);
                       setShowHubDropdown(false);
                     }}
-                    className={`w-full flex items-center justify-between text-left px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                    className={`w-full flex items-center justify-between text-left px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-colors ${
                       selectedHub === hub.id
-                        ? 'bg-[#FF5E00] text-white'
-                        : 'text-white/70 hover:bg-white/5 hover:text-white'
+                        ? 'bg-[#FF5E00] text-white shadow-sm'
+                        : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <span className="truncate">{hub.name}</span>
@@ -210,19 +207,19 @@ export default function AdminLayout({
 
           {/* Right Area: Status & Admin Profile */}
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>Production Live</span>
             </div>
 
             {/* Admin Profile Pill */}
-            <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
+            <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-gray-100 border border-black/5">
               <div className="w-6 h-6 rounded-full bg-[#FF5E00] flex items-center justify-center text-white text-xs font-black">
                 A
               </div>
               <div className="hidden md:block text-left text-xs">
-                <p className="font-bold text-white leading-none">Super Admin</p>
-                <p className="text-[10px] text-white/40 font-medium">Head of Ops</p>
+                <p className="font-bold text-gray-900 leading-none">Super Admin</p>
+                <p className="text-[10px] text-gray-400 font-medium">Head of Ops</p>
               </div>
             </div>
           </div>

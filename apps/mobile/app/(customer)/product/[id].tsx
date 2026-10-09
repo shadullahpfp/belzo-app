@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
   guaranteeTitle: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#2A134D',
+    color: '#1C1C1E',
     marginBottom: 4,
   },
   guaranteeSubtitle: {

@@ -13,3 +13,8 @@ export {
   type OrderTimelineTrackerProps,
   type OrderProgressStatus,
 } from './OrderTimelineTracker';
+export {
+  LocationNotServiceableModal,
+  type LocationNotServiceableModalProps,
+} from './LocationNotServiceableModal';
+

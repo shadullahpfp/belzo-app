@@ -15,7 +15,7 @@ export const isAndroid = Platform.OS === 'android';
 export function getElevation(level: 1 | 2 | 3 | 4 | 5): ViewStyle {
   return Platform.select<ViewStyle>({
     ios: {
-      shadowColor: '#2A134D',
+      shadowColor: '#000000',
       shadowOffset: {
         width: 0,
         height: level * 2,

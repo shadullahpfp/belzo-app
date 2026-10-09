@@ -72,21 +72,21 @@ const DEMO_BROADCAST_ORDER: RiderOrder = {
   id: 'ord-live-7721',
   short_code: 'BLZ-7721',
   status: 'ready_for_pickup',
-  store_name: 'Belzo Central Hub 01 (Koramangala)',
-  store_address: '80 Feet Road, 4th Block, Koramangala, Bengaluru',
-  store_phone: '+91 98888 12345',
-  store_latitude: 12.9352,
-  store_longitude: 77.6245,
-  customer_name: 'Ananya Deshmukh',
-  customer_phone: '+91 98451 22334',
-  customer_address: 'Flat 402, Lotus Orchid, 5th Main, Koramangala 4th Block',
-  customer_latitude: 12.9388,
-  customer_longitude: 77.6289,
+  store_name: 'Belzo Joniha Central Hub 01',
+  store_address: 'Joniha Chauraha, Bindki Road, Fatehpur (212635)',
+  store_phone: '+91 98765 00001',
+  store_latitude: 26.0350,
+  store_longitude: 80.4650,
+  customer_name: 'Valued Customer',
+  customer_phone: '+91 98765 11223',
+  customer_address: 'Ward No. 4, Shahbajpur, Joniha, Bindki',
+  customer_latitude: 26.0365,
+  customer_longitude: 80.4672,
   delivery_notes: 'Ring the doorbell twice. Please leave at doorstep if unattended.',
   delivery_pin: '4421',
   payout: 65,
-  distance_to_store: '1.2 km',
-  distance_to_customer: '2.4 km',
+  distance_to_store: '0.8 km',
+  distance_to_customer: '1.4 km',
   items: [
     { name: 'Farm Fresh Whole Milk', unit: '1 Litre Pouch', quantity: 2, checked: false },
     { name: 'Artisan Sourdough Loaf', unit: '400g Pack', quantity: 1, checked: false },
@@ -144,11 +144,16 @@ export const useRiderStore = create<RiderState>((set, get) => ({
 
     set({ isOnline: nextState });
 
-    // Sync to Supabase profile/rider table
+    // Sync to Supabase riders and profiles table
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from('profiles').update({ is_active: nextState }).eq('id', user.id);
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+      if (userId) {
+        await supabase.from('riders').update({ is_online: nextState }).eq('id', userId);
+        await supabase.from('profiles').update({ is_active: nextState }).eq('id', userId);
+      } else {
+        // Fallback for demo bypass
+        await supabase.from('riders').update({ is_online: nextState }).limit(1);
       }
     } catch {
       // Local optimistic update
@@ -169,21 +174,22 @@ export const useRiderStore = create<RiderState>((set, get) => ({
 
     const assignedOrder: RiderOrder = {
       ...alert,
-      status: 'ready_for_pickup'
+      status: 'out_for_delivery',
     };
 
     set({
       currentOrder: assignedOrder,
-      incomingAlert: null
+      incomingAlert: null,
     });
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
       await supabase
         .from('orders')
         .update({
-          status: 'ready',
-          rider_id: user?.id || null
+          status: 'out_for_delivery',
+          ...(userId ? { rider_id: userId } : {}),
         })
         .eq('id', orderId);
     } catch {

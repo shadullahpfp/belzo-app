@@ -39,12 +39,10 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
       return;
     }
 
-    // Trigger audible haptic warning
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     } catch {}
 
-    // Pulsing animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -60,7 +58,6 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
       ])
     ).start();
 
-    // 30s Countdown timer
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -68,7 +65,6 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
           rejectOrder(order.id);
           return 0;
         }
-        // Subtly pulse haptics on final 5 seconds
         if (prev <= 6) {
           try {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -98,23 +94,38 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
   return (
     <Modal visible={true} transparent={true} animationType="fade">
       <View style={styles.overlay}>
-        <View style={styles.sheetContainer}>
-          {/* Pulsing Capsule Header */}
-          <Animated.View style={[styles.headerCapsule, { transform: [{ scale: pulseAnim }] }]}>
-            <View style={styles.liveIndicator} />
-            <Text style={styles.headerCapsuleText}>NEW PRIORITY DISPATCH OFFER</Text>
-          </Animated.View>
+        <Animated.View
+          style={[
+            styles.sheetContainer,
+            { transform: [{ scale: pulseAnim }] },
+          ]}
+        >
+          {/* Header Row */}
+          <View style={styles.sheetHeader}>
+            <View style={styles.headerCapsule}>
+              <View style={styles.headerCapsuleDot} />
+              <Text style={styles.headerCapsuleText}>INCOMING DISPATCH CALL</Text>
+            </View>
 
-          {/* Countdown & Earnings Badge */}
+            <TouchableOpacity
+              onPress={handleDecline}
+              style={styles.closeBtn}
+              activeOpacity={0.7}
+            >
+              <X size={16} color="#8E8E93" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Countdown & Payout Bento Card */}
           <View style={styles.metricsRow}>
-            {/* Circular Timer Ring */}
+            {/* SVG Countdown Radial Progress */}
             <View style={styles.timerWrapper}>
               <Svg width={68} height={68} viewBox="0 0 68 68">
                 <Circle
                   cx="34"
                   cy="34"
                   r={RADIUS}
-                  stroke="rgba(255,255,255,0.12)"
+                  stroke="#E5E7EB"
                   strokeWidth="5"
                   fill="transparent"
                 />
@@ -124,10 +135,10 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
                   r={RADIUS}
                   stroke="#FF5E00"
                   strokeWidth="5"
-                  strokeDasharray={`${CIRCUMFERENCE}`}
+                  fill="transparent"
+                  strokeDasharray={CIRCUMFERENCE}
                   strokeDashoffset={strokeDashoffset}
                   strokeLinecap="round"
-                  fill="transparent"
                   transform="rotate(-90 34 34)"
                 />
               </Svg>
@@ -137,22 +148,23 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
               </View>
             </View>
 
-            {/* Guaranteed Earnings Display */}
+            {/* Payout Hero Value */}
             <View style={styles.payoutCard}>
-              <Text style={styles.payoutLabel}>GUARANTEED PAYOUT</Text>
+              <Text style={styles.payoutLabel}>TRIP PAYOUT</Text>
               <Text style={styles.payoutValue}>₹{order.payout}</Text>
-              <Text style={styles.payoutSubtext}>Includes surge & drop bonus</Text>
+              <Text style={styles.payoutSubtext}>Instant shift credit on delivery</Text>
             </View>
           </View>
 
-          {/* Trip Geometry & Distance Matrix */}
+          {/* 2-Step Route Preview Card */}
           <View style={styles.tripCard}>
+            {/* Step 1: Store Hub */}
             <View style={styles.tripStep}>
               <View style={styles.stepDotStore} />
               <View style={styles.stepContent}>
-                <Text style={styles.stepTitle}>Pickup: {order.store_name}</Text>
+                <Text style={styles.stepTitle}>Pick up at Store Hub</Text>
                 <Text style={styles.stepSubtitle} numberOfLines={1}>
-                  {order.store_address}
+                  {order.store_name}
                 </Text>
               </View>
               <Text style={styles.stepDistance}>{order.distance_to_store}</Text>
@@ -161,15 +173,18 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
             <View style={styles.stepDivider}>
               <View style={styles.dividerLine} />
               <View style={styles.dividerTag}>
-                <Navigation size={12} color="#FF5E00" />
-                <Text style={styles.dividerTagText}>3.6 km Total Trip</Text>
+                <ShoppingBag size={11} color="#FF5E00" />
+                <Text style={styles.dividerTagText}>
+                  {order.items.length} items packed & sealed
+                </Text>
               </View>
             </View>
 
+            {/* Step 2: Customer */}
             <View style={styles.tripStep}>
               <View style={styles.stepDotCustomer} />
               <View style={styles.stepContent}>
-                <Text style={styles.stepTitle}>Deliver: {order.customer_name}</Text>
+                <Text style={styles.stepTitle}>Drop to Customer</Text>
                 <Text style={styles.stepSubtitle} numberOfLines={1}>
                   {order.customer_address}
                 </Text>
@@ -178,35 +193,26 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
             </View>
           </View>
 
-          {/* Items Preview */}
-          <View style={styles.itemsPreview}>
-            <ShoppingBag size={14} color="rgba(255,255,255,0.6)" />
-            <Text style={styles.itemsPreviewText}>
-              {order.items.reduce((acc, it) => acc + it.quantity, 0)} Items (
-              {order.items.map((i) => i.name).join(', ')})
-            </Text>
-          </View>
-
-          {/* Action Buttons */}
-          <View style={styles.actionsRow}>
+          {/* Action CTAs */}
+          <View style={styles.actionRow}>
             <TouchableOpacity
               onPress={handleDecline}
-              style={styles.declineButton}
-              activeOpacity={0.7}
+              style={styles.declineBtn}
+              activeOpacity={0.8}
             >
-              <Text style={styles.declineText}>Decline</Text>
+              <Text style={styles.declineBtnText}>Pass</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={handleAccept}
-              style={styles.acceptButton}
-              activeOpacity={0.85}
+              style={styles.acceptBtn}
+              activeOpacity={0.9}
             >
-              <Text style={styles.acceptText}>Accept Delivery</Text>
+              <Text style={styles.acceptBtnText}>Accept Order</Text>
               <ArrowRight size={18} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -215,59 +221,72 @@ export const OrderAlertModal: React.FC<OrderAlertModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(10, 4, 20, 0.85)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
   },
   sheetContainer: {
-    backgroundColor: '#1E0E38',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 36,
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28, // rounded-3xl squircle
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+    padding: 22,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 20,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
   },
-  headerCapsule: {
-    alignSelf: 'center',
+  sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 94, 0, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 94, 0, 0.45)',
-    borderRadius: 999,
-    paddingVertical: 5,
-    paddingHorizontal: 14,
-    marginBottom: 18,
-    gap: 7,
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  liveIndicator: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+  headerCapsule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFF7ED',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 0.5,
+    borderColor: '#FED7AA',
+  },
+  headerCapsuleDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#FF5E00',
   },
   headerCapsuleText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
-    color: '#FF7A29',
-    letterSpacing: 0.8,
+    color: '#FF5E00',
+    letterSpacing: 0.6,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F2F2F7',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   metricsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    marginBottom: 16,
+    backgroundColor: '#F9FAFB',
     borderRadius: 20,
     padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 0.5,
+    borderColor: '#E5E7EB',
   },
   timerWrapper: {
     width: 68,
@@ -282,13 +301,13 @@ const styles = StyleSheet.create({
   timerDigits: {
     fontSize: 18,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   timerSec: {
     fontSize: 8,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.5)',
+    color: '#8E8E93',
   },
   payoutCard: {
     flex: 1,
@@ -296,28 +315,28 @@ const styles = StyleSheet.create({
   },
   payoutLabel: {
     fontSize: 10,
-    fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.5)',
+    fontWeight: '800',
+    color: '#8E8E93',
     letterSpacing: 0.5,
   },
   payoutValue: {
     fontSize: 32,
     fontWeight: '900',
-    color: '#34C759',
+    color: '#047857',
     fontVariant: ['tabular-nums'],
     marginVertical: 1,
   },
   payoutSubtext: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: '#6B7280',
   },
   tripCard: {
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-    marginBottom: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 0.5,
+    borderColor: '#E5E7EB',
+    marginBottom: 16,
   },
   tripStep: {
     flexDirection: 'row',
@@ -334,7 +353,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#34C759',
+    backgroundColor: '#047857',
     marginRight: 10,
   },
   stepContent: {
@@ -343,17 +362,17 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#111827',
   },
   stepSubtitle: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#8E8E93',
     marginTop: 1,
   },
   stepDistance: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
     marginLeft: 8,
   },
@@ -366,14 +385,14 @@ const styles = StyleSheet.create({
   dividerLine: {
     width: 2,
     height: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: '#E5E7EB',
     marginRight: 14,
   },
   dividerTag: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255, 94, 0, 0.12)',
+    backgroundColor: '#FFF7ED',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
@@ -381,58 +400,43 @@ const styles = StyleSheet.create({
   dividerTagText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#FF7A29',
+    color: '#FF5E00',
   },
-  itemsPreview: {
+  actionRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 6,
-    marginBottom: 20,
-  },
-  itemsPreviewText: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.65)',
-    flex: 1,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
   },
-  declineButton: {
-    flex: 1,
-    paddingVertical: 15,
+  declineBtn: {
+    width: 90,
+    backgroundColor: '#F3F4F6',
     borderRadius: 16,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
-  declineText: {
+  declineBtnText: {
     fontSize: 14,
     fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.75)',
+    color: '#6B7280',
   },
-  acceptButton: {
-    flex: 2,
+  acceptBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 15,
-    borderRadius: 16,
     backgroundColor: '#FF5E00',
+    borderRadius: 16,
+    paddingVertical: 14,
     shadowColor: '#FF5E00',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  acceptText: {
+  acceptBtnText: {
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
 });

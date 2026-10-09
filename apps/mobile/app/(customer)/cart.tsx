@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useCartStore } from '../../store/useCartStore';
+import { useLocationStore } from '../../store/useLocationStore';
 import { QuantityStepper } from '../../components/ui/QuantityStepper';
 
 const INSTRUCTION_PRESETS = [
@@ -25,6 +26,8 @@ const INSTRUCTION_PRESETS = [
 export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const { isServiceable } = useLocationStore();
 
   const {
     items,
@@ -48,16 +51,27 @@ export default function CartScreen() {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    setCustomNote(preset);
-    setDeliveryInstructions(preset);
+    const nextVal = customNote === preset ? '' : preset;
+    setCustomNote(nextVal);
+    setDeliveryInstructions(nextVal);
   };
 
-  const handleProceedToAddress = async () => {
+  const handleProceedToCheckout = async () => {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
     setDeliveryInstructions(customNote);
-    router.push('/(customer)/address' as any);
+    router.push('/(customer)/checkout' as any);
+  };
+
+  const handleClearCart = async () => {
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    clearCart();
+    if (router.canGoBack()) {
+      router.back();
+    }
   };
 
   const totalMrp = items.reduce(
@@ -109,7 +123,7 @@ export default function CartScreen() {
           <Text style={styles.backButtonText}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Your Cart ({items.length} items)</Text>
-        <TouchableOpacity onPress={clearCart} style={styles.clearButton}>
+        <TouchableOpacity onPress={handleClearCart} style={styles.clearButton}>
           <Text style={styles.clearButtonText}>Clear</Text>
         </TouchableOpacity>
       </View>
@@ -117,7 +131,7 @@ export default function CartScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: insets.bottom + 120 },
+          { paddingBottom: 140 },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -284,6 +298,15 @@ export default function CartScreen() {
           { paddingBottom: insets.bottom + 12 },
         ]}
       >
+        {!isServiceable && (
+          <View style={styles.unserviceableBanner}>
+            <Text style={styles.unserviceableBannerIcon}>⚠️</Text>
+            <Text style={styles.unserviceableBannerText}>
+              Delivery unavailable at your current location. Please select an address within Joniha 5 KM zone.
+            </Text>
+          </View>
+        )}
+
         <View style={styles.addressPreview}>
           <Text style={styles.deliverToTag}>DELIVERING TO</Text>
           <Text numberOfLines={1} style={styles.addressLine}>
@@ -294,17 +317,23 @@ export default function CartScreen() {
         </View>
 
         <TouchableOpacity
-          style={styles.proceedButton}
-          onPress={handleProceedToAddress}
-          activeOpacity={0.88}
+          style={[
+            styles.proceedButton,
+            !isServiceable && styles.disabledProceedButton,
+          ]}
+          onPress={isServiceable ? handleProceedToCheckout : undefined}
+          activeOpacity={isServiceable ? 0.88 : 1}
+          disabled={!isServiceable}
         >
           <View>
-            <Text style={styles.proceedPrice}>₹{netPayable}</Text>
-            <Text style={styles.proceedSub}>TOTAL</Text>
+            <Text style={[styles.proceedPrice, !isServiceable && styles.disabledButtonText]}>₹{netPayable}</Text>
+            <Text style={[styles.proceedSub, !isServiceable && styles.disabledButtonText]}>TOTAL</Text>
           </View>
           <View style={styles.proceedRight}>
-            <Text style={styles.proceedText}>Select Address</Text>
-            <Text style={styles.proceedArrow}>➔</Text>
+            <Text style={[styles.proceedText, !isServiceable && styles.disabledButtonText]}>
+              {isServiceable ? 'Proceed to Pay' : 'Delivery Unavailable'}
+            </Text>
+            {isServiceable && <Text style={styles.proceedArrow}>➔</Text>}
           </View>
         </TouchableOpacity>
       </View>
@@ -406,15 +435,20 @@ const styles = StyleSheet.create({
   },
   cardSection: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24, // rounded-3xl
     padding: 18,
     borderWidth: 0.5,
     borderColor: 'rgba(0, 0, 0, 0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 1,
   },
   cardSectionHeading: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#000000',
+    color: '#111827',
     marginBottom: 14,
     letterSpacing: -0.3,
   },
@@ -426,12 +460,12 @@ const styles = StyleSheet.create({
   },
   itemRowBorder: {
     borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(0, 0, 0, 0.06)',
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
   },
   itemThumb: {
     width: 52,
     height: 52,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: '#F8F9FD',
     resizeMode: 'cover',
   },
@@ -441,7 +475,7 @@ const styles = StyleSheet.create({
   itemName: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#000000',
+    color: '#111827',
     marginBottom: 2,
   },
   itemUnit: {
@@ -453,7 +487,7 @@ const styles = StyleSheet.create({
   itemPrice: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#000000',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   chipsRow: {
@@ -467,26 +501,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 14,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   presetChipActive: {
-    backgroundColor: '#2A134D',
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FF5E00',
   },
   presetChipText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#636366',
+    color: '#4B5563',
   },
   presetChipTextActive: {
-    color: '#FFFFFF',
+    color: '#FF5E00',
     fontWeight: '700',
   },
   instructionsInput: {
-    backgroundColor: '#F2F2F7',
+    backgroundColor: '#F9FAFB',
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 13,
-    color: '#000000',
+    color: '#111827',
   },
   billRow: {
     flexDirection: 'row',
@@ -496,13 +535,13 @@ const styles = StyleSheet.create({
   },
   billLabel: {
     fontSize: 14,
-    color: '#636366',
+    color: '#6B7280',
     fontWeight: '500',
   },
   billValue: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#000000',
+    fontWeight: '800',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   rowWithIcon: {
@@ -511,18 +550,20 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   freePill: {
-    backgroundColor: '#E8F8EE',
+    backgroundColor: '#ECFDF5',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: '#A7F3D0',
   },
   freePillText: {
-    color: '#34C759',
+    color: '#047857',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   strikethroughFee: {
-    color: '#34C759',
+    color: '#047857',
     textDecorationLine: 'line-through',
   },
   savingsRow: {
@@ -533,17 +574,17 @@ const styles = StyleSheet.create({
   },
   savingsLabel: {
     fontSize: 14,
-    color: '#34C759',
+    color: '#047857',
     fontWeight: '700',
   },
   savingsAmount: {
     fontSize: 14,
-    color: '#34C759',
+    color: '#047857',
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
   billDivider: {
-    height: 1,
+    height: 0.5,
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
     marginVertical: 10,
   },
@@ -555,13 +596,13 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     fontSize: 16,
-    fontWeight: '900',
-    color: '#000000',
+    fontWeight: '800',
+    color: '#111827',
   },
   totalValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    color: '#000000',
+    color: '#111827',
     fontVariant: ['tabular-nums'],
   },
   bottomBar: {
@@ -569,11 +610,33 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
     borderTopWidth: 0.5,
     borderTopColor: 'rgba(0, 0, 0, 0.08)',
     paddingHorizontal: 16,
     paddingTop: 12,
+  },
+  unserviceableBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF2F2',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.25)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    gap: 8,
+  },
+  unserviceableBannerIcon: {
+    fontSize: 16,
+  },
+  unserviceableBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#D70015',
+    fontWeight: '600',
+    lineHeight: 16,
   },
   addressPreview: {
     marginBottom: 10,
@@ -587,7 +650,7 @@ const styles = StyleSheet.create({
   addressLine: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#2A134D',
+    color: '#111827',
     marginTop: 2,
   },
   proceedButton: {
@@ -637,6 +700,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
   },
+  disabledProceedButton: {
+    backgroundColor: '#E5E5EA',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  disabledButtonText: {
+    color: '#8E8E93',
+  },
   emptyContainer: {
     flex: 1,
     alignItems: 'center',
@@ -661,7 +732,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   browseButton: {
-    backgroundColor: '#2A134D',
+    backgroundColor: '#FF5E00',
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 18,

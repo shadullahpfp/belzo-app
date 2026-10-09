@@ -22,12 +22,14 @@ const INITIAL_SAVED_ADDRESSES: Address[] = [
     label: 'Home',
     recipient_name: 'Rahul Sharma',
     recipient_phone: '+91 98765 43210',
-    house_flat_no: 'Flat 402, Tower B',
-    floor: '4th Floor',
-    apartment_road_area: 'Prestige Meridian, 100ft Road, Indiranagar',
-    landmark: 'Near Metro Pillar 84',
-    city: 'Bengaluru',
-    postal_code: '560038',
+    house_flat_no: 'Ward No. 4, Near Chauraha',
+    floor: 'Ground Floor',
+    apartment_road_area: 'Shahbajpur, Joniha, Bindki Road',
+    landmark: 'Near Joniha Central Hub',
+    city: 'Fatehpur',
+    postal_code: '212635',
+    lat: 26.0350,
+    lng: 80.4650,
     is_default: true,
   },
   {
@@ -35,12 +37,14 @@ const INITIAL_SAVED_ADDRESSES: Address[] = [
     label: 'Office',
     recipient_name: 'Rahul Sharma',
     recipient_phone: '+91 98765 43210',
-    house_flat_no: 'Bay 12, WeWork Galaxy',
-    floor: '3rd Floor',
-    apartment_road_area: '43 Residency Road, Shanthala Nagar',
-    landmark: 'Opposite Ritz Carlton',
-    city: 'Bengaluru',
-    postal_code: '560025',
+    house_flat_no: 'Shop 12, Bindki Road',
+    floor: '1st Floor',
+    apartment_road_area: 'Joniha Chauraha, Bindki Road',
+    landmark: 'Opposite State Bank ATM',
+    city: 'Fatehpur',
+    postal_code: '212635',
+    lat: 26.0360,
+    lng: 80.4660,
     is_default: false,
   },
 ];
@@ -105,15 +109,15 @@ export default function AddressScreen() {
           .filter(Boolean)
           .join(', ');
 
-        setArea(detectedArea || 'Indiranagar 100ft Road, Bengaluru');
+        setArea(detectedArea || 'Joniha Chauraha, Bindki Road, Fatehpur');
         setShowAddForm(true);
       } else {
-        setArea('Indiranagar, Bengaluru, 560038');
+        setArea('Joniha, Bindki Road, Fatehpur, 212635');
         setShowAddForm(true);
       }
     } catch (err) {
       // Fallback
-      setArea('Indiranagar 100ft Road, Bengaluru, 560038');
+      setArea('Shahbajpur, Joniha, Bindki Road, Fatehpur, 212635');
       setShowAddForm(true);
     } finally {
       setIsLocating(false);
@@ -462,7 +466,7 @@ const styles = StyleSheet.create({
   labelBadgeText: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#2A134D',
+    color: '#1C1C1E',
   },
   defaultPill: {
     backgroundColor: '#E8F8EE',
@@ -529,12 +533,12 @@ const styles = StyleSheet.create({
   addNewPlus: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#2A134D',
+    color: '#FF5E00',
   },
   addNewText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#2A134D',
+    color: '#1C1C1E',
   },
   formCard: {
     backgroundColor: '#FFFFFF',
@@ -572,7 +576,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   typeChipActive: {
-    backgroundColor: '#2A134D',
+    backgroundColor: '#FF5E00',
   },
   typeChipText: {
     fontSize: 13,

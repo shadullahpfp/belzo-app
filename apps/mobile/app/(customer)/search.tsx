@@ -17,107 +17,353 @@ import { QuantityStepper } from '../../components/ui/QuantityStepper';
 import { BottomCartPill } from '../../components/ui/BottomCartPill';
 import { ProductCardSkeleton } from '../../components/ui/ShimmerSkeleton';
 import { supabase } from '../../src/lib/supabase';
+import { VERIFIED_CATALOG_PRODUCTS } from '../../constants/catalog';
 
 const CATEGORIES = [
   'All',
   'Grocery',
-  'Veggies',
-  'Food',
-  'Pharma',
+  'Fruits & Vegetables',
+  'Food & Restaurant',
+  'Medicine & Healthcare',
   'Fashion',
-  'Tech',
+  'Electronics',
 ];
 
-const FALLBACK_PRODUCTS: CartProduct[] = [
-  {
-    id: 'p1',
-    name: 'Amul Taaza Fresh Toned Milk',
-    unit: '500 ml',
-    price: 34,
-    mrp: 38,
-    stock: 20,
-    category: 'Grocery',
-    image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=400&q=80',
-    description: 'Pasteurized homogenized toned milk with essential vitamins and calcium.',
-  },
-  {
-    id: 'p2',
-    name: 'Harvest Gold 100% Atta Brown Bread',
-    unit: '400 g',
-    price: 49,
-    mrp: 55,
-    stock: 12,
-    category: 'Grocery',
-    image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=400&q=80',
-    description: 'Zero maida, baked fresh with whole wheat fiber for a wholesome breakfast.',
-  },
-  {
-    id: 'p3',
-    name: 'Farm Fresh Organic Hass Avocado',
-    unit: '2 pcs',
-    price: 189,
-    mrp: 240,
-    stock: 8,
-    category: 'Veggies',
-    image: 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?auto=format&fit=crop&w=400&q=80',
-    description: 'Rich and creamy buttery avocados handpicked for salads, guacamole, and toast.',
-  },
-  {
-    id: 'p4',
-    name: 'Belzo Farm Red Ripe Tomatoes',
-    unit: '1 kg',
-    price: 38,
-    mrp: 50,
-    stock: 25,
-    category: 'Veggies',
-    image: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=400&q=80',
-    description: 'Hydroponic, sun-ripened farm fresh tomatoes bursting with natural flavor.',
-  },
-  {
-    id: 'p5',
-    name: 'Croissant Butter Puff (Pack of 2)',
-    unit: '200 g',
-    price: 120,
-    mrp: 150,
-    stock: 6,
-    category: 'Food',
-    image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=400&q=80',
-    description: 'Flaky, artisanal French-style butter croissants baked freshly every morning.',
-  },
-  {
-    id: 'p6',
-    name: 'Electrolyte Hydration Powder (Lime)',
-    unit: '5 sachets',
-    price: 99,
-    mrp: 125,
-    stock: 15,
-    category: 'Pharma',
-    image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80',
-    description: 'Instant energy and oral rehydration salt formula with essential zinc.',
-  },
-  {
-    id: 'p7',
-    name: 'Classic Cotton Crew Socks (3 Pairs)',
-    unit: '3 pairs',
-    price: 249,
-    mrp: 399,
-    stock: 10,
-    category: 'Fashion',
-    image: 'https://images.unsplash.com/photo-1586350977771-b3b0abd50c82?auto=format&fit=crop&w=400&q=80',
-    description: 'Breathable combed cotton cushion crew socks with reinforced heel and toe.',
-  },
-  {
-    id: 'p8',
-    name: 'Type-C Fast Braided Charging Cable',
-    unit: '1.2 m',
-    price: 299,
-    mrp: 499,
-    stock: 14,
-    category: 'Tech',
-    image: 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=400&q=80',
-    description: 'Heavy duty 65W PD fast charging braided cord with gold-plated connectors.',
-  },
-];
+
+/**
+ * Localized search taxonomy covering English, transliterated Hindi, and regional terms.
+ */
+const SEARCH_SYNONYMS: Record<string, string[]> = {
+  // Vegetables & Mandi
+  aloo: ['alu', 'potato', 'potatoes', 'pahadi aloo', 'desi aloo', 'anand aloo'],
+  alu: ['aloo', 'potato', 'potatoes'],
+  potato: ['aloo', 'alu'],
+  pyaz: ['pyaj', 'onion', 'onions', 'lal pyaz', 'kanda'],
+  pyaj: ['pyaz', 'onion', 'onions', 'lal pyaz', 'kanda'],
+  onion: ['pyaz', 'pyaj', 'lal pyaz'],
+  tamatar: ['tomato', 'tomatoes', 'desi tamatar', 'lal tamatar'],
+  tomato: ['tamatar', 'desi tamatar'],
+  baingan: ['baigan', 'brinjal', 'eggplant', 'gol baingan', 'nemi baingan', 'bharta'],
+  baigan: ['baingan', 'brinjal', 'eggplant'],
+  brinjal: ['baingan', 'baigan'],
+  kheera: ['cucumber', 'kakdi', 'salad'],
+  cucumber: ['kheera', 'kakdi'],
+  bhindi: ['okra', 'lady finger', 'komal bhindi', 'bhendi'],
+  okra: ['bhindi', 'lady finger'],
+  lauki: ['bottle gourd', 'ghiya', 'doodhi', 'taza lauki'],
+  mirch: ['chilli', 'chili', 'hari mirch', 'teekhi', 'green chilli', 'lal mirch'],
+  chilli: ['mirch', 'hari mirch', 'lal mirch'],
+  adrak: ['ginger', 'desi adrak', 'chai adrak'],
+  ginger: ['adrak', 'desi adrak'],
+  karela: ['bitter gourd', 'desi karela'],
+  kaddu: ['pumpkin', 'sitaphal', 'meetha kaddu'],
+  parwal: ['parval', 'pointed gourd'],
+  tori: ['turai', 'ridge gourd'],
+  gobhi: ['phoolgobhi', 'cauliflower', 'gobi'],
+  phoolgobhi: ['cauliflower', 'gobhi', 'gobi'],
+  dhaniya: ['coriander', 'cilantro', 'hara dhaniya'],
+  mushroom: ['button mushroom', 'mashroom'],
+
+  // Pizza, Momos & Bakery
+  'kulhad pizza': ['kulhad', 'pizza', 'paradise'],
+  'cheese pizza': ['cheese', 'pizza', 'mozzarella', 'overloaded'],
+  pizza: ['kulhad pizza', 'cheese pizza', 'paneer tikka pizza', 'combo'],
+  pasta: ['macaroni', 'penne', 'white sauce', 'red sauce'],
+  momos: ['momo', 'paneer momos', 'dimsum', 'fried momos'],
+  momo: ['momos', 'fried momos'],
+  cake: ['birthday cake', 'lava cake', 'black forest'],
+  'lava cake': ['choco lava', 'lava', 'cake', 'chocolate cake'],
+
+  // Dhaba Kitchen & Meals
+  thali: ['dhaba thali', 'saada thali', 'special thali', 'meal', 'lunch', 'dinner'],
+  paneer: ['paneer tikka', 'kadhai paneer', 'paneer pizza', 'paneer momos'],
+  'dal tadka': ['dal', 'daal', 'yellow dal', 'tadka', 'butter dal'],
+  dal: ['dal tadka', 'arhar daal', 'daal', 'toor dal'],
+  daal: ['dal', 'dal tadka', 'arhar daal'],
+  roti: ['tandoor', 'butter roti', 'chapati', 'tandoori'],
+  paratha: ['aloo paratha', 'desi paratha', 'parantha'],
+  chawal: ['rice', 'basmati', 'jeera rice', 'fried rice'],
+  rice: ['chawal', 'basmati', 'jeera rice'],
+
+  // Mithai & Chocolates
+  'gulab jamun': ['gulab', 'jamun', 'mithai', 'sweet'],
+  rasgulla: ['chena rasgulla', 'rosogolla', 'mithai', 'white rasgulla'],
+  rajbhog: ['kesar rajbhog', 'mithai', 'saffron sweet'],
+  laddu: ['ladoo', 'besan laddu', 'mithai', 'shuddh besan'],
+  ladoo: ['laddu', 'besan laddu'],
+  kitkat: ['kit kat', 'wafer', 'nestle', 'chocolate'],
+  'dairy milk': ['cadbury', 'crackle', 'chocolate', 'milk chocolate'],
+  '5 star': ['five star', '5star', 'cadbury', 'chocolate'],
+  chocolate: ['dairy milk', 'kitkat', '5 star', 'dark fantasy', 'lava cake'],
+
+  // Kirana, Oils & Spices
+  'sarso tel': ['mustard oil', 'kachi ghani', 'tel', 'sarson'],
+  sarson: ['sarso tel', 'mustard oil'],
+  tel: ['oil', 'sarso', 'fortune', 'nutrela', 'mustard oil'],
+  oil: ['tel', 'sarso', 'fortune', 'nutrela', 'refined oil'],
+  fortune: ['refined oil', 'oil', 'tel', 'sunflower'],
+  goldi: ['haldi', 'mirch', 'dhaniya', 'masala', 'garam masala', 'chaat masala', 'kitchen king', 'sabji masala'],
+  haldi: ['turmeric', 'goldi haldi'],
+  turmeric: ['haldi'],
+  maggi: ['noodles', 'masala noodles', 'instant noodles', '2 minute'],
+  noodles: ['maggi', 'chowmein', 'hakka noodles'],
+  campa: ['campa cola', 'cola', 'cold drink', 'desi cola'],
+  sting: ['energy drink', 'beverage', 'red drink', 'cold drink'],
+  kaju: ['cashew', 'cashews', 'tukda', 'dry fruit'],
+  cashew: ['kaju'],
+  badam: ['almond', 'almonds', 'california badam', 'dry fruit'],
+  almond: ['badam'],
+  makhana: ['fox nuts', 'phool makhana', 'lotus seeds'],
+  namkeen: ['bhujia', 'bikaner bhujia', 'sev'],
+  bhujia: ['namkeen', 'bikaner bhujia', 'sev'],
+  biscuit: ['parle-g', 'dark fantasy', 'cookie'],
+  chai: ['tea', 'tata agni', 'taaza tea', 'patti'],
+  tea: ['chai', 'tata tea', 'taaza'],
+  cheeni: ['sugar', 'shakkar', 'chini'],
+  sugar: ['cheeni', 'shakkar'],
+  namak: ['salt', 'tata namak', 'tata salt'],
+  salt: ['namak', 'tata namak'],
+  besan: ['chana besan', 'gram flour'],
+  maida: ['fine flour', 'flour'],
+  sooji: ['suji', 'rawa', 'semolina'],
+  poha: ['thick poha', 'chiwda'],
+
+  // Electronics & Mobiles
+  vivo: ['vivo v60e', 'vivo v40 pro', 'smartphone', 'mobile', '5g phone'],
+  nokia: ['nokia 105', 'keypad phone', 'feature phone', 'classic', 'phone'],
+  realme: ['realme 15x', 'realme buds', 'neckband', 'smartphone', '5g phone'],
+  oppo: ['oppo k14x', 'smartphone', 'mobile', '5g phone'],
+  redmi: ['redmi 15c', 'xiaomi', 'smartphone', 'mobile', '5g phone'],
+  mobile: ['smartphone', 'phone', '5g', 'vivo', 'realme', 'oppo', 'redmi', 'nokia'],
+  smartphone: ['mobile', 'phone', '5g', 'vivo', 'realme', 'oppo', 'redmi'],
+  phone: ['mobile', 'smartphone', 'nokia', 'vivo', 'realme', 'oppo', 'redmi'],
+  charger: ['power adapter', 'fast power adapter', 'dock charger', 'apple 20w', 'supervooc', '120w', 'tc-21', 'erd'],
+  adapter: ['charger', 'power adapter', 'supervooc', 'apple 20w', '120w', 'tc-21', 'erd'],
+  earbuds: ['tws', 'air dopes', 'nord buds', 'nothing buds', 'cmf', 'boat', 'wireless'],
+  tws: ['earbuds', 'nord buds', 'nothing buds', 'cmf', 'boat', 'airdopes'],
+  neckband: ['realme buds', 'wireless z3', 'earphones', 'bluetooth'],
+  headphones: ['p9 wireless', 'headphone', 'over-ear', 'bluetooth'],
+  soundbar: ['soroo', 'speaker', 'tv soundbar', 'bluetooth'],
+  speaker: ['cricket ball speaker', 'cyomi', 'soundbar', 'megaphone', 'bhonpu'],
+  bhonpu: ['megaphone', 'da bhonpu', 'yoroto', 'loud'],
+  smartwatch: ['watch', 'protec', 'fall detection', 'safety watch'],
+  vacuum: ['car vacuum', 'mini vacuum', 'cleaner', 'cordless'],
+  dryer: ['hair dryer', 'nova-nx', 'blower'],
+
+  // Medicine & Baby Healthcare
+  cerelac: ['nestle cerelac', 'baby food', 'baby cereal', 'wheat apple', 'mixed fruit'],
+  horlicks: ['chocolate delight', 'nutrition drink', 'health drink', 'malt'],
+  complan: ['chocolate drink', 'milk protein', 'nutrition formula'],
+  amulspray: ['infant milk', 'baby milk', 'milk powder', 'amul'],
+  dettol: ['antiseptic', 'first aid', 'liquid', 'germ defence'],
+  chyawanprash: ['dabur', 'ayurvedic', 'immunity', '3x immunity'],
+  zandu: ['zandu balm', 'pain relief', 'balm', 'headache'],
+  iodex: ['iodex balm', 'body pain', 'balm', 'back pain'],
+  candid: ['dusting powder', 'antifungal', 'skin solution', 'powder'],
+  eno: ['acidity', 'gas relief', 'sixer pack', 'sachet'],
+  'dermi cool': ['dermicool', 'cooling powder', 'prickly heat', 'neem tulsi'],
+  'all out': ['mosquito', 'refill', 'liquid refill', 'machhar'],
+  gripe: ['gripe water', 'dabur gripe', 'infant digestive'],
+  ghunti: ['janma ghunti', 'dabur ghunti', 'infant tonic'],
+
+  // Beverages & Cold Drinks
+  'red bull': ['redbull', 'energy drink', 'energy can'],
+  'mountain dew': ['dew', 'cold drink', 'soft drink', 'soda'],
+  'thums up': ['toofan', 'charged cola', 'cold drink', 'cola'],
+  sprite: ['lemon lime', 'soda', 'cold drink'],
+  maaza: ['mango drink', 'frooti', 'cold drink', 'mango pulp'],
+
+  // Fast Food & Snacks
+  frankie: ['paneer frankie', 'roll', 'wrap', 'bala ji'],
+  burger: ['aloo tikki burger', 'tikki burger', 'burger'],
+  'garlic bread': ['stuffed garlic bread', 'bread', 'pizza paradise'],
+
+  // Fashion & Lifestyle
+  sofa: ['inflatable sofa', 'ottoman', 'chair', 'lounge'],
+  socks: ['cotton socks', 'ankle socks', 'pure cotton'],
+};
+
+/**
+ * Checks whether a product matches a search query using direct text and taxonomy expansion.
+ */
+function productMatchesQuery(p: CartProduct, rawQuery: string): boolean {
+  const q = rawQuery.toLowerCase().trim();
+  if (!q) return true;
+
+  const pName = p.name.toLowerCase();
+  const pDesc = (p.description || '').toLowerCase();
+  const pCat = (p.category || '').toLowerCase();
+  const pCatId = (p.category_id || '').toLowerCase();
+  const pTags = (p.tags || []).map((t) => t.toLowerCase());
+  const pSearchTags = (p.search_tags || []).map((t) => t.toLowerCase());
+
+  // 1. Direct text inclusion
+  if (
+    pName.includes(q) ||
+    pDesc.includes(q) ||
+    pCat.includes(q) ||
+    pCatId.includes(q) ||
+    pTags.some((t) => t.includes(q)) ||
+    pSearchTags.some((t) => t.includes(q))
+  ) {
+    return true;
+  }
+
+  // 2. Query words token match
+  const qTokens = q.split(/\s+/).filter(Boolean);
+  const allProductText = `${pName} ${pDesc} ${pCat} ${pTags.join(' ')} ${pSearchTags.join(' ')}`;
+  const allTokensMatch = qTokens.every((token) => allProductText.includes(token));
+  if (allTokensMatch) {
+    return true;
+  }
+
+  // 3. Synonym / Taxonomy expansion match
+  const expandedTerms = new Set<string>();
+  if (SEARCH_SYNONYMS[q]) {
+    SEARCH_SYNONYMS[q].forEach((s) => expandedTerms.add(s.toLowerCase()));
+  }
+  for (const token of qTokens) {
+    if (SEARCH_SYNONYMS[token]) {
+      SEARCH_SYNONYMS[token].forEach((s) => expandedTerms.add(s.toLowerCase()));
+    }
+  }
+
+  for (const term of expandedTerms) {
+    if (
+      pName.includes(term) ||
+      pDesc.includes(term) ||
+      pTags.some((t) => t.includes(term)) ||
+      pSearchTags.some((t) => t.includes(term))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Filter product by selected category pill.
+ */
+function productMatchesCategory(p: CartProduct, category: string): boolean {
+  if (category === 'All') return true;
+  const sel = category.toLowerCase();
+  const cat = (p.category || '').toLowerCase();
+  const catId = (p.category_id || '').toLowerCase();
+
+  if (sel === 'grocery') {
+    return (
+      catId === 'cat-01-grocery' ||
+      cat === 'grocery' ||
+      catId === 'grocery' ||
+      catId === 'c0000000-0000-0000-0000-000000000002' ||
+      catId === 'staples' ||
+      catId === 'spices' ||
+      catId === 'drinks' ||
+      catId === 'sweets' ||
+      catId === 'munchies' ||
+      cat.includes('kirana') ||
+      cat.includes('staple') ||
+      cat.includes('masale') ||
+      cat.includes('spice') ||
+      cat.includes('drink') ||
+      cat.includes('mithai') ||
+      cat.includes('munchies')
+    );
+  }
+
+  if (sel === 'fruits & vegetables') {
+    return (
+      catId === 'cat-02-produce' ||
+      cat === 'fruits & vegetables' ||
+      catId === 'produce' ||
+      catId === 'fruits-vegetables' ||
+      catId === 'c0000000-0000-0000-0000-000000000001' ||
+      cat.includes('sabzi') ||
+      cat.includes('mandi') ||
+      cat.includes('produce') ||
+      cat.includes('vegetable')
+    );
+  }
+
+  if (sel === 'food & restaurant') {
+    return (
+      catId === 'cat-03-food' ||
+      cat === 'food & restaurant' ||
+      catId === 'food' ||
+      catId === 'food-restaurant' ||
+      catId === 'fastfood' ||
+      catId === 'meals' ||
+      catId === 'c0000000-0000-0000-0000-000000000006' ||
+      catId === 'c0000000-0000-0000-0000-000000000007' ||
+      cat.includes('pizza') ||
+      cat.includes('dhaba') ||
+      cat.includes('restaurant') ||
+      cat.includes('momos')
+    );
+  }
+
+  if (sel === 'medicine & healthcare') {
+    return (
+      catId === 'cat-04-pharma' ||
+      cat === 'medicine & healthcare' ||
+      catId === 'pharma' ||
+      cat.includes('medicine') ||
+      cat.includes('pharma') ||
+      cat.includes('health')
+    );
+  }
+
+  if (sel === 'fashion') {
+    return (
+      catId === 'cat-05-fashion' ||
+      cat === 'fashion' ||
+      catId === 'fashion' ||
+      cat.includes('fashion') ||
+      cat.includes('wear') ||
+      cat.includes('cloth')
+    );
+  }
+
+  if (sel === 'electronics') {
+    return (
+      catId === 'cat-06-electronics' ||
+      cat === 'electronics' ||
+      catId === 'electronics' ||
+      cat.includes('electronic') ||
+      cat.includes('tech')
+    );
+  }
+
+  return cat.includes(sel) || catId.includes(sel);
+}
+
+/**
+ * Executes a Supabase search with an enforced 500ms timeout race.
+ * Prevents hanging DNS/network requests from holding the UI in infinite skeleton loading.
+ */
+async function fetchSupabaseProductsWithTimeout(searchQuery: string, timeoutMs = 500) {
+  const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>
+    setTimeout(() => resolve({ data: null, error: new Error('Supabase search timeout') }), timeoutMs)
+  );
+
+  const queryPromise = (async () => {
+    try {
+      const response = await supabase
+        .from('products')
+        .select('*')
+        .or(
+          `name.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,category_id.ilike.%${searchQuery}%`
+        )
+        .limit(30);
+      return response;
+    } catch (err: any) {
+      return { data: null, error: err };
+    }
+  })();
+
+  return Promise.race([queryPromise, timeoutPromise]);
+}
 
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
@@ -126,7 +372,7 @@ export default function SearchScreen() {
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isSearching, setIsSearching] = useState(false);
-  const [results, setResults] = useState<CartProduct[]>(FALLBACK_PRODUCTS);
+  const [results, setResults] = useState<CartProduct[]>(VERIFIED_CATALOG_PRODUCTS);
 
   const {
     items,
@@ -145,55 +391,76 @@ export default function SearchScreen() {
     }
 
     setIsSearching(true);
+
     debounceTimer.current = setTimeout(async () => {
       try {
-        let filtered = FALLBACK_PRODUCTS;
+        const cleanQuery = query.trim();
+
+        // 1. Initial filtered baseline from verified in-memory catalog
+        let fallbackMatches = VERIFIED_CATALOG_PRODUCTS;
 
         if (selectedCategory !== 'All') {
-          filtered = filtered.filter(
-            (p) => p.category?.toLowerCase() === selectedCategory.toLowerCase()
+          fallbackMatches = fallbackMatches.filter((p) =>
+            productMatchesCategory(p, selectedCategory)
           );
         }
 
-        if (query.trim()) {
-          const q = query.trim().toLowerCase();
-          filtered = filtered.filter(
-            (p) =>
-              p.name.toLowerCase().includes(q) ||
-              p.category?.toLowerCase().includes(q) ||
-              p.description?.toLowerCase().includes(q)
+        if (cleanQuery) {
+          fallbackMatches = fallbackMatches.filter((p) =>
+            productMatchesQuery(p, cleanQuery)
           );
+        }
 
-          // Attempt Supabase fetch if connected
+        // 2. Attempt Supabase direct live lookup with strict 500ms race
+        if (cleanQuery) {
           try {
-            const { data } = await supabase
-              .from('products')
-              .select('*')
-              .ilike('name', `%${query.trim()}%`)
-              .limit(15);
+            const { data, error } = await fetchSupabaseProductsWithTimeout(cleanQuery, 500);
 
-            if (data && data.length > 0) {
+            if (!error && data && data.length > 0) {
               const mapped: CartProduct[] = data.map((d: any) => ({
                 id: d.id,
                 name: d.name,
-                unit: d.unit,
-                price: Number(d.price),
-                mrp: Number(d.mrp || d.price * 1.2),
-                stock: d.stock_quantity || 10,
-                image: d.media_urls?.[0] || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80',
+                unit: d.unit || '1 pc',
+                price: Number(d.discount_price ?? d.price),
+                mrp: Number(d.price),
+                stock: d.stock_quantity || 20,
+                stock_quantity: d.stock_quantity || 20,
+                is_available: d.is_available ?? true,
+                image:
+                  d.image_url ||
+                  d.media_urls?.[0] ||
+                  'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80',
                 description: d.description || '',
-                category: 'Grocery',
+                category: d.category_id || 'Grocery',
+                category_id: d.category_id,
               }));
-              filtered = mapped;
+
+              let finalResults = mapped;
+              if (selectedCategory !== 'All') {
+                finalResults = mapped.filter((p) =>
+                  productMatchesCategory(p, selectedCategory)
+                );
+              }
+
+              // Use Supabase data if matches found, otherwise fallback cleanly
+              setResults(finalResults.length > 0 ? finalResults : fallbackMatches);
+              return;
             }
-          } catch {}
+          } catch (supaErr) {
+            console.warn('[Search] Falling back to in-memory catalog:', supaErr);
+          }
         }
 
-        setResults(filtered);
+        // Fallback or empty query results
+        setResults(fallbackMatches);
+      } catch (err) {
+        console.warn('[Search] Unhandled search error:', err);
+        setResults(VERIFIED_CATALOG_PRODUCTS);
       } finally {
+        // ALWAYS clear skeleton loading in finally block
         setIsSearching(false);
       }
-    }, 250);
+    }, 200);
 
     return () => {
       if (debounceTimer.current) {
@@ -211,7 +478,7 @@ export default function SearchScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
-      {/* Top Search Sticky Bar */}
+      {/* Top Search Sticky Bar (Apple HIG Glass) */}
       <View
         style={[
           styles.headerContainer,
@@ -232,21 +499,25 @@ export default function SearchScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search milk, bread, avocados..."
+              placeholder="Search vivo, pizza, horlicks, dettol, aloo, tel..."
               placeholderTextColor="#8E8E93"
               autoFocus
               clearButtonMode="while-editing"
               style={styles.searchInput}
             />
-            {query.length > 0 && Platform.OS === 'android' && (
-              <TouchableOpacity onPress={() => setQuery('')}>
-                <Text style={{ color: '#8E8E93', fontSize: 16 }}>✕</Text>
+            {query.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setQuery('')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.clearBtn}
+              >
+                <Text style={styles.clearBtnText}>✕</Text>
               </TouchableOpacity>
             )}
           </View>
         </View>
 
-        {/* Filter Pills */}
+        {/* Category Filter Pills */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -291,7 +562,7 @@ export default function SearchScreen() {
             <Text style={styles.emptyEmoji}>🔎</Text>
             <Text style={styles.emptyTitle}>No matching products</Text>
             <Text style={styles.emptySubtitle}>
-              Try searching for "Milk", "Bread", or browse all categories.
+              Try searching for "Vivo", "Kulhad Pizza", "Horlicks", "Dettol", or "Maggi".
             </Text>
           </View>
         ) : (
@@ -308,7 +579,7 @@ export default function SearchScreen() {
               return (
                 <TouchableOpacity
                   key={product.id}
-                  activeOpacity={0.9}
+                  activeOpacity={0.92}
                   onPress={() => router.push(`/(customer)/product/${product.id}` as any)}
                   style={styles.card}
                 >
@@ -355,7 +626,9 @@ export default function SearchScreen() {
         <BottomCartPill
           itemCount={totalQuantity}
           totalPrice={netPayable}
+          etaMinutes={12}
           onPress={() => router.push('/(customer)/cart' as any)}
+          bottomOffset={insets.bottom + 12}
         />
       )}
     </View>
@@ -408,6 +681,19 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontWeight: '500',
   },
+  clearBtn: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#C7C7CC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
   pillsScroll: {
     flexDirection: 'row',
     gap: 8,
@@ -420,7 +706,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F2F7',
   },
   pillActive: {
-    backgroundColor: '#2A134D',
+    backgroundColor: '#FF5E00',
   },
   pillText: {
     fontSize: 13,
@@ -443,11 +729,16 @@ const styles = StyleSheet.create({
   card: {
     width: '48%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 12,
     borderWidth: 0.5,
     borderColor: 'rgba(0, 0, 0, 0.06)',
     position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
   },
   discountBadge: {
     position: 'absolute',
@@ -468,7 +759,7 @@ const styles = StyleSheet.create({
   productImage: {
     width: '100%',
     height: 120,
-    borderRadius: 14,
+    borderRadius: 16,
     resizeMode: 'cover',
     marginBottom: 8,
     backgroundColor: '#F8F9FD',
