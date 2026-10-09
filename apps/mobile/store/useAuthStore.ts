@@ -178,6 +178,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isProfileSheetOpen: false,
     });
 
+    // Skip Supabase write for demo accounts (IDs not in auth.users — FK violation)
+    const isDemoId = userId.startsWith('d0000000-');
+    if (isDemoId) return true;
+
     try {
       const { error } = await supabase.from('profiles').upsert({
         id: userId,
@@ -189,11 +193,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       if (error) {
-        console.warn('Supabase profile upsert warning:', error.message);
+        // Non-fatal: profile is already updated in local state
+        console.warn('Supabase profile upsert (non-fatal):', error.message);
       }
       return true;
     } catch (err) {
-      console.warn('Supabase profile update exception:', err);
+      console.warn('Supabase profile update (non-fatal):', err);
       return true;
     }
   },
@@ -217,6 +222,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     set({ rider: mergedRider });
 
+    // Skip Supabase write for demo accounts
+    const isDemoId = riderId.startsWith('d0000000-');
+    if (isDemoId) return true;
+
     try {
       await supabase.from('riders').upsert({
         id: riderId,
@@ -227,7 +236,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       return true;
     } catch (err) {
-      console.warn('Rider update exception:', err);
+      console.warn('Rider update (non-fatal):', err);
       return true;
     }
   },
@@ -252,53 +261,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isLoading: false,
     });
 
-    // Check Supabase for real existing profile for this demo account
-    try {
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', demoId)
-        .maybeSingle();
-
-      if (existing) {
-        set({
-          profile: existing as UserProfile,
-          isProfileSheetOpen: !existing.full_name || existing.full_name.trim() === '',
-        });
-        if (newRole === 'rider') {
-          await get().fetchRiderData(demoId);
-        }
-      } else {
-        const newProfile: UserProfile = {
-          id: demoId,
-          phone: fullPhone,
-          full_name: null,
-          role: newRole,
-          is_active: true,
-          default_address: {
-            city: 'Bindki',
-            area: 'Joniha Chauraha',
-            address: 'Ward No. 4, Shahbajpur, Joniha, Bindki (212635)',
-          },
-        };
-        set({
-          profile: newProfile,
-          isProfileSheetOpen: newRole === 'customer',
-        });
-        if (newRole === 'rider') {
-          await get().fetchRiderData(demoId);
-        }
-      }
-    } catch {
-      set({
-        profile: {
-          id: demoId,
-          phone: fullPhone,
-          full_name: null,
-          role: newRole,
-          is_active: true,
+    // Demo accounts: skip Supabase DB read/write — demo IDs don't exist in auth.users
+    // and foreign key constraint would cause an unhandled exception (error boundary popup).
+    set({
+      profile: {
+        id: demoId,
+        phone: fullPhone,
+        full_name: null,
+        role: newRole,
+        is_active: true,
+        default_address: {
+          city: 'Bindki',
+          area: 'Joniha Chauraha',
+          address: 'Ward No. 4, Shahbajpur, Joniha, Bindki (212635)',
         },
-        isProfileSheetOpen: newRole === 'customer',
+      },
+      isProfileSheetOpen: newRole === 'customer',
+    });
+    if (newRole === 'rider') {
+      set({
+        rider: {
+          id: demoId,
+          vehicle_type: 'Motorcycle',
+          vehicle_number: 'UP-71-AB-1234',
+          is_online: true,
+          rating: 4.95,
+          total_deliveries: 18,
+        },
       });
     }
   },

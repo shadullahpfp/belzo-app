@@ -13,12 +13,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import {
-  signInWithPhoneNumber,
-  RecaptchaVerifier,
-  ConfirmationResult,
-} from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { signInWithPhoneNumber, RecaptchaVerifier, ConfirmationResult } from 'firebase/auth';
+import { auth, isFirebaseConfigured } from '../../lib/firebase';
 import { supabase } from '../../src/lib/supabase';
 import { useAuth } from '../_layout';
 
@@ -118,6 +114,15 @@ export default function LoginScreen() {
       // Format Indian E.164 phone number
       const fullPhone = `+91${cleanPhone}`;
 
+      // Skip Firebase SMS if not properly configured (placeholder keys)
+      if (!isFirebaseConfigured) {
+        setStep('otp');
+        setResendTimer(RESEND_COOLDOWN);
+        setCanResend(false);
+        setLoading(false);
+        return;
+      }
+
       let verifier = recaptchaVerifierRef.current;
       if (!verifier && Platform.OS === 'web') {
         verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
@@ -131,9 +136,8 @@ export default function LoginScreen() {
       setStep('otp');
       setResendTimer(RESEND_COOLDOWN);
       setCanResend(false);
-    } catch (err: any) {
-      console.warn('Firebase Phone Auth send fallback:', err);
-      // Fallback: If Firebase SMS is not provisioned in dev/test, allow OTP entry
+    } catch {
+      // Fallback: allow OTP entry even if Firebase SMS is not provisioned
       setStep('otp');
       setResendTimer(RESEND_COOLDOWN);
       setCanResend(false);
@@ -206,36 +210,38 @@ export default function LoginScreen() {
       }
 
       // 2. Call Supabase Auth Bridge endpoint to exchange for a valid Supabase session
+      // NOTE: On physical Android devices, localhost resolves to the device itself (not dev machine).
+      // The bridge is optional — if unreachable, we fall through to the demo bypass below.
       const fullPhone = `+91${cleanPhone}`;
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL;
 
-      try {
-        const response = await fetch(`${apiUrl}/api/auth/bridge`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            phoneNumber: fullPhone,
-            firebaseUid: firebaseUid || `fb-${cleanPhone}`,
-          }),
-        });
-
-        const bridgeResult = await response.json();
-
-        if (bridgeResult?.session?.access_token) {
-          await supabase.auth.setSession({
-            access_token: bridgeResult.session.access_token,
-            refresh_token: bridgeResult.session.refresh_token,
+      if (apiUrl && apiUrl !== 'http://localhost:3001') {
+        try {
+          const response = await fetch(`${apiUrl}/api/auth/bridge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              phoneNumber: fullPhone,
+              firebaseUid: firebaseUid || `fb-${cleanPhone}`,
+            }),
           });
 
-          try {
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          } catch {}
-          return;
+          const bridgeResult = await response.json();
+
+          if (bridgeResult?.session?.access_token) {
+            await supabase.auth.setSession({
+              access_token: bridgeResult.session.access_token,
+              refresh_token: bridgeResult.session.refresh_token,
+            });
+
+            try {
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch {}
+            return;
+          }
+        } catch {
+          // Bridge unreachable — continuing to demo bypass
         }
-      } catch (bridgeErr) {
-        console.warn('Auth Bridge network call error:', bridgeErr);
       }
 
       // 3. Direct Fallback if bridge server is unreachable
