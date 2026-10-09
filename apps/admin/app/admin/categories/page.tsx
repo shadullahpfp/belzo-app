@@ -23,12 +23,27 @@ interface CategoryItem {
   isActive: boolean;
 }
 
+/**
+ * STRICT LOCK: The Belzo category hierarchy is fixed to exactly these 6 official IDs.
+ * No custom or arbitrary categories may be created via the admin UI.
+ * Any new category must be officially approved and reflected in this constant.
+ */
+const LOCKED_OFFICIAL_CATEGORIES = [
+  'cat-01-grocery',
+  'cat-02-produce',
+  'cat-03-food',
+  'cat-04-pharma',
+  'cat-05-fashion',
+  'cat-06-electronics',
+] as const;
+
 export default function AdminCategoriesPage() {
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
+  const [lockWarning, setLockWarning] = useState<string | null>(null);
 
   // Form Fields
   const [formName, setFormName] = useState('');
@@ -112,6 +127,15 @@ export default function AdminCategoriesPage() {
   );
 
   const openAddModal = () => {
+    // ENFORCEMENT: Block arbitrary category creation — 6-category hierarchy is immutable
+    if (categories.length >= LOCKED_OFFICIAL_CATEGORIES.length) {
+      setLockWarning(
+        '🔒 Category Hierarchy Locked — Belzo enforces exactly 6 official categories. ' +
+        'Contact the CTO to modify the product taxonomy.'
+      );
+      setTimeout(() => setLockWarning(null), 5000);
+      return;
+    }
     setEditingCategory(null);
     setFormName('');
     setFormSlug('');
@@ -135,6 +159,13 @@ export default function AdminCategoriesPage() {
     e.preventDefault();
     if (!formName.trim() || !formSlug.trim()) {
       alert('Please fill all required fields');
+      return;
+    }
+    // Block creating new categories that break the 6-category lock
+    if (!editingCategory && categories.length >= LOCKED_OFFICIAL_CATEGORIES.length) {
+      setShowModal(false);
+      setLockWarning('🔒 Cannot create category — 6-category limit enforced.');
+      setTimeout(() => setLockWarning(null), 5000);
       return;
     }
 
@@ -203,6 +234,12 @@ export default function AdminCategoriesPage() {
   };
 
   const handleDeleteCategory = async (id: string) => {
+    // ENFORCEMENT: Block deletion of official Belzo categories
+    if ((LOCKED_OFFICIAL_CATEGORIES as readonly string[]).includes(id)) {
+      setLockWarning(`🔒 Cannot delete official category "${id}" — locked by franchise policy.`);
+      setTimeout(() => setLockWarning(null), 5000);
+      return;
+    }
     if (!confirm('Are you sure you want to delete this category?')) return;
     setCategories((prev) => prev.filter((c) => c.id !== id));
     try {
@@ -239,6 +276,24 @@ export default function AdminCategoriesPage() {
             Add Category
           </button>
         </div>
+      </div>
+
+      {/* 6-Category Lock Warning Banner */}
+      {lockWarning && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-sm font-medium">
+          <span className="text-lg mt-0.5">🔒</span>
+          <span>{lockWarning}</span>
+        </div>
+      )}
+
+      {/* Official Category Constraint Notice */}
+      <div className="flex items-center gap-2.5 px-4 py-2.5 bg-orange-50 border border-orange-100 rounded-xl text-xs text-orange-700">
+        <span>🔐</span>
+        <span>
+          <strong>Category Hierarchy Locked:</strong> Belzo enforces exactly{' '}
+          <strong>6 official categories</strong>. All 124+ products must belong to one of:
+          grocery · produce · food · pharma · fashion · electronics
+        </span>
       </div>
 
       {/* Filter and Search Bar */}
