@@ -25,12 +25,13 @@ export interface RiderData {
 
 interface AuthState {
   session: Session | null;
-  user: User | { id: string; phone?: string; email?: string } | null;
+  user: User | { id: string; phone?: string; email?: string } | any | null;
   profile: UserProfile | null;
   rider: RiderData | null;
   role: 'customer' | 'rider' | 'store_operator' | 'admin' | null;
   isLoading: boolean;
   isProfileSheetOpen: boolean;
+  isProfileIncomplete: boolean;
 
   // Actions
   setSession: (session: Session | null) => void;
@@ -39,6 +40,8 @@ interface AuthState {
   setRider: (rider: RiderData | null) => void;
   setRole: (role: 'customer' | 'rider' | 'store_operator' | 'admin' | null) => void;
   setIsProfileSheetOpen: (open: boolean) => void;
+  setIsProfileIncomplete: (incomplete: boolean) => void;
+  syncClerkUser: (clerkUser: any) => Promise<UserProfile | null>;
   fetchProfile: (userId: string, roleHint?: string) => Promise<UserProfile | null>;
   fetchRiderData: (riderId: string) => Promise<RiderData | null>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<boolean>;
@@ -55,6 +58,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   role: null,
   isLoading: true,
   isProfileSheetOpen: false,
+  isProfileIncomplete: false,
 
   setSession: (session) => set({ session }),
   setUser: (user) => set({ user }),
@@ -62,6 +66,93 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setRider: (rider) => set({ rider }),
   setRole: (role) => set({ role }),
   setIsProfileSheetOpen: (isProfileSheetOpen) => set({ isProfileSheetOpen }),
+  setIsProfileIncomplete: (isProfileIncomplete) => set({ isProfileIncomplete }),
+
+  syncClerkUser: async (clerkUser: any) => {
+    if (!clerkUser) return null;
+    const userId = clerkUser.id;
+    const email =
+      clerkUser.primaryEmailAddress?.emailAddress ||
+      clerkUser.emailAddresses?.[0]?.emailAddress ||
+      null;
+    const fullName =
+      clerkUser.fullName ||
+      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') ||
+      'Belzo Member';
+    const avatarUrl = clerkUser.imageUrl || null;
+
+    set({
+      user: {
+        id: userId,
+        email,
+        fullName,
+        imageUrl: avatarUrl,
+      } as any,
+    });
+
+    try {
+      // Upsert into Supabase public.profiles
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: userId,
+            email,
+            full_name: fullName,
+            avatar_url: avatarUrl,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        )
+        .select()
+        .maybeSingle();
+
+      const phoneNumber = data?.phone || data?.phone_number || null;
+      const hasValidPhone = !!phoneNumber && phoneNumber.trim().length >= 10;
+      const hasValidAddress = !!data?.default_address;
+      const isIncomplete = !hasValidPhone || !hasValidAddress;
+
+      const userProfile: UserProfile = {
+        id: userId,
+        phone: phoneNumber || '',
+        full_name: data?.full_name || fullName,
+        email,
+        avatar_url: avatarUrl,
+        role: (data?.role as any) || 'customer',
+        is_active: data?.is_active ?? true,
+        default_address: data?.default_address || null,
+      };
+
+      set({
+        profile: userProfile,
+        role: userProfile.role,
+        isLoading: false,
+        isProfileIncomplete: isIncomplete,
+        isProfileSheetOpen: isIncomplete,
+      });
+
+      return userProfile;
+    } catch (err) {
+      console.warn('Supabase Clerk profile sync note:', err);
+      const fallbackProfile: UserProfile = {
+        id: userId,
+        phone: '',
+        full_name: fullName,
+        email,
+        avatar_url: avatarUrl,
+        role: 'customer',
+        is_active: true,
+      };
+      set({
+        profile: fallbackProfile,
+        role: 'customer',
+        isLoading: false,
+        isProfileIncomplete: true,
+        isProfileSheetOpen: true,
+      });
+      return fallbackProfile;
+    }
+  },
 
   fetchProfile: async (userId: string, roleHint?: string) => {
     try {
@@ -74,11 +165,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (data && !error) {
         const userProfile = data as UserProfile;
         const assignedRole = (userProfile.role || roleHint || 'customer') as any;
+        const phoneNumber = (data as any)?.phone || (data as any)?.phone_number || null;
+        const hasValidPhone = !!phoneNumber && phoneNumber.trim().length >= 10;
+        const hasValidAddress = !!(data as any)?.default_address;
+        const isIncomplete = !hasValidPhone || !hasValidAddress || !userProfile.full_name;
+
         set({
           profile: userProfile,
           role: assignedRole,
           isLoading: false,
-          isProfileSheetOpen: !userProfile.full_name || userProfile.full_name.trim() === '',
+          isProfileIncomplete: isIncomplete,
+          isProfileSheetOpen: isIncomplete,
         });
 
         if (assignedRole === 'rider') {
@@ -91,8 +188,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const currentUser = get().user;
         const fallbackProfile: UserProfile = {
           id: userId,
-          phone: (currentUser as any)?.phone || '+91 98765 43210',
-          full_name: null,
+          phone: (currentUser as any)?.phone || '',
+          full_name: (currentUser as any)?.fullName || null,
           role: (roleHint as any) || 'customer',
           is_active: true,
         };
@@ -100,6 +197,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           profile: fallbackProfile,
           role: (roleHint as any) || 'customer',
           isLoading: false,
+          isProfileIncomplete: true,
           isProfileSheetOpen: true,
         });
         return fallbackProfile;
@@ -171,11 +269,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       role: updates.role ?? baseProfile.role,
     };
 
+    const hasValidPhone = !!mergedProfile.phone && mergedProfile.phone.trim().length >= 10;
+    const hasValidAddress = !!mergedProfile.default_address;
+    const isIncomplete = !hasValidPhone || !hasValidAddress || !mergedProfile.full_name;
+
     // Optimistic update
     set({
       profile: mergedProfile,
       role: mergedProfile.role,
-      isProfileSheetOpen: false,
+      isProfileIncomplete: isIncomplete,
+      isProfileSheetOpen: isIncomplete ? get().isProfileSheetOpen : false,
     });
 
     // Skip Supabase write for demo accounts (IDs not in auth.users — FK violation)

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useCartStore } from '../../store/useCartStore';
 import { useLocationStore } from '../../store/useLocationStore';
+import { useAuthStore } from '../../store/useAuthStore';
 import { supabase } from '../../src/lib/supabase';
 
 export default function CheckoutScreen() {
@@ -20,6 +21,7 @@ export default function CheckoutScreen() {
   const router = useRouter();
 
   const { isServiceable } = useLocationStore();
+  const { profile, isProfileIncomplete, setIsProfileSheetOpen } = useAuthStore();
 
   const {
     items,
@@ -35,7 +37,34 @@ export default function CheckoutScreen() {
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'upi'>('upi');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
+  // Empty Cart Guard: Redirect to Home if cart items are 0
+  useEffect(() => {
+    if (items.length === 0) {
+      router.replace('/(customer)/home' as any);
+    }
+  }, [items.length, router]);
+
   const handlePlaceOrder = async () => {
+    // Atomic Double-Submission Guard
+    if (isPlacingOrder) return;
+    if (items.length === 0) {
+      router.replace('/(customer)/home' as any);
+      return;
+    }
+
+    // Profile Completeness Guard: verify phone and delivery address before checkout
+    const hasPhone =
+      !!profile?.phone && profile.phone.replace(/\D/g, '').length >= 10;
+    const hasAddress = !!profile?.default_address || !!selectedAddress;
+
+    if (!hasPhone || !hasAddress || isProfileIncomplete) {
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } catch {}
+      setIsProfileSheetOpen(true);
+      return;
+    }
+
     setIsPlacingOrder(true);
     const JONIHA_HUB_ID = 'a0000000-0000-0000-0000-000000000001';
     const randomPin = Math.floor(1000 + Math.random() * 9000).toString();
@@ -47,7 +76,7 @@ export default function CheckoutScreen() {
       // Attempt Supabase live insert
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        let userId = session?.user?.id;
+        let userId = session?.user?.id || profile?.id;
 
         // Fallback: If in demo/unauthenticated bypass, fetch or link to any customer profile
         if (!userId) {
@@ -60,13 +89,13 @@ export default function CheckoutScreen() {
           userId = prof?.id || '00000000-0000-0000-0000-000000000001';
         }
 
-        const addressPayload = selectedAddress || {
+        const addressPayload = selectedAddress || profile?.default_address || {
           house_flat_no: 'Ward No. 4',
           apartment_road_area: 'Shahbajpur, Joniha, Bindki',
           city: 'Fatehpur',
           postal_code: '212635',
-          recipient_name: 'Rahul Sharma',
-          recipient_phone: '+91 98765 43210',
+          recipient_name: profile?.full_name || 'Rahul Sharma',
+          recipient_phone: profile?.phone || '+91 98765 43210',
           landmark: 'Near Joniha Central Hub',
         };
 

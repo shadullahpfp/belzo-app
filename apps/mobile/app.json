@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Belzo",
-    "slug": "belzo-app",
+    "name": "Belzo - 10 Min Grocery & Food",
+    "slug": "belzo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
+      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": false,
@@ -28,20 +28,17 @@
     },
     "android": {
       "package": "com.belzo.hyperlocal",
+      "versionCode": 1,
       "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "POST_NOTIFICATIONS",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "CAMERA",
-        "VIBRATE"
+        "ACCESS_FINE_LOCATION",
+        "INTERNET",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {

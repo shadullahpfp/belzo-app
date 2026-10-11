@@ -10,6 +10,8 @@ import {
   Animated,
   Linking,
   Modal,
+  BackHandler,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -93,6 +95,18 @@ export default function TrackOrderScreen() {
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [selectedRating, setSelectedRating] = useState(5);
 
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  // Intercept Android hardware back press to prevent checkout loops
+  useEffect(() => {
+    const backAction = () => {
+      router.replace('/(customer)/home' as any);
+      return true; // Prevents default back navigation
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => backHandler.remove();
+  }, [router]);
+
   // Animations
   const riderProgressAnim = useRef(new Animated.Value(0.75)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -159,40 +173,71 @@ export default function TrackOrderScreen() {
 
     fetchOrderData();
 
-    // Supabase Realtime Subscription
-    const channel = supabase
-      .channel(`order-track-${orderId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'orders',
-          filter: `id=eq.${orderId}`,
-        },
-        (payload: any) => {
-          if (payload.new) {
-            try {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } catch {}
+    // Supabase Realtime Subscription with Automatic Reconnection
+    let isSubscribed = true;
+    let reconnectTimer: any = null;
+    let currentChannel: any = null;
 
-            const nextStatus = (payload.new.status as OrderStatus) || undefined;
-            setOrder((prev) => ({
-              ...prev,
-              ...(nextStatus ? { status: nextStatus } : {}),
-              ...(payload.new.delivery_pin ? { delivery_pin: payload.new.delivery_pin } : {}),
-            }));
+    const setupSubscription = () => {
+      if (!isSubscribed) return;
+      if (currentChannel) {
+        try {
+          supabase.removeChannel(currentChannel);
+        } catch {}
+      }
 
-            if (nextStatus === 'delivered') {
-              setShowRatingModal(true);
+      currentChannel = supabase
+        .channel(`order-track-${orderId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'orders',
+            filter: `id=eq.${orderId}`,
+          },
+          (payload: any) => {
+            if (payload.new) {
+              try {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              } catch {}
+
+              const nextStatus = (payload.new.status as OrderStatus) || undefined;
+              setOrder((prev) => ({
+                ...prev,
+                ...(nextStatus ? { status: nextStatus } : {}),
+                ...(payload.new.delivery_pin ? { delivery_pin: payload.new.delivery_pin } : {}),
+              }));
+
+              if (nextStatus === 'delivered') {
+                setShowRatingModal(true);
+              }
             }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            setIsConnecting(true);
+            if (isSubscribed) {
+              clearTimeout(reconnectTimer);
+              reconnectTimer = setTimeout(() => {
+                setupSubscription();
+              }, 3000);
+            }
+          } else if (status === 'SUBSCRIBED') {
+            setIsConnecting(false);
+          }
+        });
+    };
+
+    setupSubscription();
 
     return () => {
-      supabase.removeChannel(channel);
+      isSubscribed = false;
+      clearTimeout(reconnectTimer);
+      if (currentChannel) {
+        supabase.removeChannel(currentChannel);
+      }
     };
   }, [orderId]);
 
@@ -282,11 +327,7 @@ export default function TrackOrderScreen() {
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity
           onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace('/(customer)/home' as any);
-            }
+            router.replace('/(customer)/home' as any);
           }}
           style={styles.backBtn}
           activeOpacity={0.7}
@@ -304,6 +345,14 @@ export default function TrackOrderScreen() {
           <Text style={styles.elapsedText}>{formatElapsed(elapsedSeconds)}</Text>
         </View>
       </View>
+
+      {/* Network Glitch / Reconnection Banner */}
+      {isConnecting && (
+        <View style={styles.connectingBanner}>
+          <ActivityIndicator size="small" color="#EA580C" style={{ marginRight: 8 }} />
+          <Text style={styles.connectingBannerText}>Connecting to Joniha Dark Store...</Text>
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
@@ -617,6 +666,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 0.5,
     borderColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  connectingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF7ED',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FED7AA',
+  },
+  connectingBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#C2410C',
   },
   backBtn: {
     width: 38,

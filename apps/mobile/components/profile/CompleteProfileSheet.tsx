@@ -57,7 +57,17 @@ export function CompleteProfileSheet({ visible, onClose }: Props) {
     }
   }, [profile, user]);
 
+  const canDismiss =
+    !!profile?.full_name &&
+    !!profile?.phone &&
+    profile.phone.replace(/\D/g, '').length >= 10 &&
+    !!profile?.default_address;
+
   const handleDismiss = () => {
+    if (!canDismiss) {
+      // Un-dismissible until mobile and address are verified
+      return;
+    }
     if (onClose) {
       onClose();
     } else {
@@ -75,6 +85,29 @@ export function CompleteProfileSheet({ visible, onClose }: Props) {
       return;
     }
 
+    const digitsOnly = phoneNumber.replace(/\D/g, '');
+    const clean10Digits =
+      digitsOnly.length === 12 && digitsOnly.startsWith('91')
+        ? digitsOnly.slice(2)
+        : digitsOnly;
+
+    if (clean10Digits.length !== 10) {
+      setErrorMsg('Please enter a valid 10-digit Indian mobile number');
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } catch {}
+      return;
+    }
+
+    const trimmedAddress = deliveryAddress.trim();
+    if (!trimmedAddress) {
+      setErrorMsg('Please enter your delivery address / landmark');
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } catch {}
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg(null);
 
@@ -82,19 +115,19 @@ export function CompleteProfileSheet({ visible, onClose }: Props) {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
 
-    const cleanPhone = phoneNumber.trim() || profile?.phone || '+91 98765 43210';
+    const formattedPhone = `+91 ${clean10Digits}`;
     const addressObj = {
       label: 'Home',
       recipient_name: trimmedName,
-      recipient_phone: cleanPhone,
+      recipient_phone: formattedPhone,
       city: 'Bindki',
       area: 'Joniha',
-      address: deliveryAddress.trim() || 'Ward No. 4, Shahbajpur, Joniha, Bindki (212635)',
+      address: trimmedAddress,
     };
 
     const success = await updateProfile({
       full_name: trimmedName,
-      phone: cleanPhone,
+      phone: formattedPhone,
       default_address: addressObj,
     });
 
@@ -104,7 +137,11 @@ export function CompleteProfileSheet({ visible, onClose }: Props) {
       try {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch {}
-      handleDismiss();
+      if (onClose) {
+        onClose();
+      } else {
+        setIsProfileSheetOpen(false);
+      }
     } else {
       setErrorMsg('Failed to save profile. Please try again.');
     }
@@ -117,7 +154,7 @@ export function CompleteProfileSheet({ visible, onClose }: Props) {
       visible={isVisible}
       animationType="slide"
       transparent
-      onRequestClose={handleDismiss}
+      onRequestClose={canDismiss ? handleDismiss : () => {}}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.overlay}>
@@ -135,10 +172,10 @@ export function CompleteProfileSheet({ visible, onClose }: Props) {
                   <View style={styles.iconChip}>
                     <Sparkles size={16} color="#FF5E00" />
                   </View>
-                  <Text style={styles.badgeText}>AUTHENTIC PROFILE</Text>
+                  <Text style={styles.badgeText}>MANDATORY PROFILE COMPLETION</Text>
                 </View>
 
-                {profile?.full_name ? (
+                {canDismiss ? (
                   <TouchableOpacity onPress={handleDismiss} style={styles.closeBtn}>
                     <X size={18} color="#8E8E93" />
                   </TouchableOpacity>

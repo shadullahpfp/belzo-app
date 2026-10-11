@@ -1,15 +1,48 @@
 import '../global.css';
-import React, { useEffect, useState, createContext, useContext } from 'react';
+import React, { useEffect, createContext, useContext } from 'react';
 import { ActivityIndicator, View, StatusBar, Image, LogBox } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Session, User } from '@supabase/supabase-js';
+import * as SecureStore from 'expo-secure-store';
+import * as WebBrowser from 'expo-web-browser';
+import { ClerkProvider, useUser, useAuth as useClerkAuth } from '@clerk/clerk-expo';
 import { supabase } from '../src/lib/supabase';
+import { useAuthStore, UserProfile, RiderData } from '../store/useAuthStore';
+import { CompleteProfileSheet } from '../components/profile/CompleteProfileSheet';
+
+// Complete WebBrowser OAuth redirects
+WebBrowser.maybeCompleteAuthSession();
 
 // Suppress development warning overlays and yellow badges during evaluation/demos
 LogBox.ignoreAllLogs(true);
 
-import { useAuthStore, UserProfile, RiderData } from '../store/useAuthStore';
+const tokenCache = {
+  async getToken(key: string) {
+    try {
+      const item = await SecureStore.getItemAsync(key);
+      return item;
+    } catch (error) {
+      console.error('SecureStore get item error: ', error);
+      await SecureStore.deleteItemAsync(key);
+      return null;
+    }
+  },
+  async saveToken(key: string, value: string) {
+    try {
+      return SecureStore.setItemAsync(key, value);
+    } catch (err) {
+      return;
+    }
+  },
+  async clearToken(key: string) {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch (err) {
+      return;
+    }
+  },
+};
 
 interface AuthContextType {
   session: Session | null;
@@ -43,7 +76,10 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-export default function RootLayout() {
+function AppNavigation() {
+  const { isLoaded: isClerkLoaded, isSignedIn, signOut: clerkSignOut } = useClerkAuth();
+  const { user: clerkUser } = useUser();
+
   const {
     session,
     user,
@@ -52,11 +88,9 @@ export default function RootLayout() {
     role,
     isLoading,
     isProfileSheetOpen,
-    setSession,
-    setUser,
-    setRole,
     setIsProfileSheetOpen,
     fetchProfile,
+    syncClerkUser,
     updateProfile,
     updateRiderDetails,
     setDemoAuth,
@@ -66,42 +100,37 @@ export default function RootLayout() {
   const segments = useSegments();
   const router = useRouter();
 
+  // Sync Clerk authenticated user with Supabase
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        setUser(session.user);
-        fetchProfile(session.user.id);
-      } else {
-        useAuthStore.setState({ isLoading: false });
-      }
-    });
+    if (!isClerkLoaded) return;
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      if (session?.user) {
-        setUser(session.user);
-        await fetchProfile(session.user.id);
-      } else if (!user) {
-        setRole(null);
-        useAuthStore.setState({ isLoading: false });
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+    if (isSignedIn && clerkUser) {
+      syncClerkUser(clerkUser);
+    } else if (!user && !role) {
+      // Check legacy Supabase session if any
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          useAuthStore.getState().setSession(session);
+          useAuthStore.getState().setUser(session.user);
+          fetchProfile(session.user.id);
+        } else {
+          useAuthStore.setState({ isLoading: false });
+        }
+      });
+    }
+  }, [isClerkLoaded, isSignedIn, clerkUser]);
 
   // Gatekeeper Redirect Logic
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || !isClerkLoaded) return;
 
     const inAuthGroup = segments[0] === '(auth)';
     const inCustomerGroup = segments[0] === '(customer)';
     const inRiderGroup = segments[0] === '(rider)';
 
-    if (!session && !role && !user) {
+    const hasAuth = (isSignedIn && !!clerkUser) || (!!role && !!user);
+
+    if (!hasAuth) {
       if (!inAuthGroup) {
         router.replace('/(auth)/login');
       }
@@ -117,7 +146,7 @@ export default function RootLayout() {
         }
       }
     }
-  }, [session, role, user, segments, isLoading]);
+  }, [isSignedIn, clerkUser, role, user, segments, isLoading, isClerkLoaded]);
 
   const setDemoRole = async (newRole: 'customer' | 'rider', phone?: string) => {
     await setDemoAuth(newRole, phone);
@@ -129,11 +158,16 @@ export default function RootLayout() {
   };
 
   const signOut = async () => {
+    try {
+      if (isSignedIn) {
+        await clerkSignOut();
+      }
+    } catch {}
     await storeSignOut();
     router.replace('/(auth)/login');
   };
 
-  if (isLoading) {
+  if (isLoading || !isClerkLoaded) {
     return (
       <SafeAreaProvider style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
         <StatusBar barStyle="dark-content" />
@@ -159,7 +193,7 @@ export default function RootLayout() {
           profile,
           rider,
           role,
-          isLoading,
+          isLoading: isLoading || !isClerkLoaded,
           isProfileSheetOpen,
           setIsProfileSheetOpen,
           updateProfile,
@@ -169,8 +203,24 @@ export default function RootLayout() {
         }}
       >
         <Slot />
+        <CompleteProfileSheet />
       </AuthContext.Provider>
     </SafeAreaProvider>
+  );
+}
+
+const CLERK_PUBLISHABLE_KEY =
+  process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ||
+  'pk_test_Y2xlcmsuYmVsem8uZGV2JA';
+
+export default function RootLayout() {
+  return (
+    <ClerkProvider
+      publishableKey={CLERK_PUBLISHABLE_KEY}
+      tokenCache={tokenCache}
+    >
+      <AppNavigation />
+    </ClerkProvider>
   );
 }
 
