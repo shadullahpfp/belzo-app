@@ -22,6 +22,7 @@ import { QuantityStepper } from '../../components/ui/QuantityStepper';
 import { ShimmerSkeleton } from '../../components/ui/ShimmerSkeleton';
 import { LocationNotServiceableModal } from '../../components/ui/LocationNotServiceableModal';
 import { CompleteProfileSheet } from '../../components/profile/CompleteProfileSheet';
+import { LocationDisclosureModal } from '../../components/LocationDisclosureModal';
 import {
   INSTAMART_BENTO_CATEGORIES,
   VERIFIED_CATALOG_PRODUCTS,
@@ -69,6 +70,7 @@ export default function CustomerHomeScreen() {
 
   const [activeBannerIndex, setActiveBannerIndex] = useState(0);
   const [showNotServiceableModal, setShowNotServiceableModal] = useState(false);
+  const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
 
   const {
     coords,
@@ -185,10 +187,11 @@ export default function CustomerHomeScreen() {
     return false;
   });
 
-  // Fetch location on mount if not already fetched
+  // Fetch location on mount — show mandatory Play Store disclosure dialog first
   useEffect(() => {
     if (!coords) {
-      fetchCurrentLocation();
+      // Show prominent disclosure before triggering OS permission prompt
+      setShowLocationDisclosure(true);
     }
   }, []);
 
@@ -570,6 +573,16 @@ export default function CustomerHomeScreen() {
       <LocationNotServiceableModal
         visible={showNotServiceableModal}
         onClose={() => setShowNotServiceableModal(false)}
+      />
+
+      {/* Play Store Mandatory Prominent Location Disclosure */}
+      <LocationDisclosureModal
+        visible={showLocationDisclosure}
+        onAllow={() => {
+          setShowLocationDisclosure(false);
+          fetchCurrentLocation();
+        }}
+        onDeny={() => setShowLocationDisclosure(false)}
       />
 
       {/* Elegant Complete Profile Sheet Modal */}

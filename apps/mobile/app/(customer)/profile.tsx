@@ -207,6 +207,37 @@ export default function CustomerProfileScreen() {
     ]);
   };
 
+  const handleDeleteAccount = async () => {
+    try {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } catch {}
+    Alert.alert(
+      'Delete Account & Data',
+      'Are you sure you want to permanently delete your Belzo account? All saved addresses, profile details, and active sessions will be deleted immediately in accordance with data safety guidelines.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Permanently',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (user?.id) {
+                await supabase.from('addresses').delete().eq('user_id', user.id);
+                await supabase.from('profiles').delete().eq('id', user.id);
+              }
+              clearCart();
+              await signOut();
+              Alert.alert('Account Deleted', 'Your account and personal data have been removed.');
+              router.replace('/(auth)/login' as any);
+            } catch (err: any) {
+              Alert.alert('Error', err?.message || 'Unable to delete account at this time. Please contact support@belzo.in');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleSupport = () => {
     try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
     Linking.openURL('tel:+919888812345');
@@ -378,6 +409,16 @@ export default function CustomerProfileScreen() {
         >
           <LogOut size={16} color="#DC2626" />
           <Text style={styles.signOutBtnText}>Log Out of Belzo</Text>
+        </TouchableOpacity>
+
+        {/* Delete Account & Data Button (Google Play Data Safety Mandate) */}
+        <TouchableOpacity
+          onPress={handleDeleteAccount}
+          style={styles.deleteAccountBtn}
+          activeOpacity={0.8}
+        >
+          <Trash2 size={15} color="#9CA3AF" />
+          <Text style={styles.deleteAccountBtnText}>Delete Account & Data</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -822,6 +863,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#DC2626', // text-red-600
+  },
+  deleteAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  deleteAccountBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#9CA3AF',
   },
   modalOverlay: {
     flex: 1,

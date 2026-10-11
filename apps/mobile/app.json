@@ -10,20 +10,14 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#FF5E00"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.belzo.app",
+      "bundleIdentifier": "com.belzo.hyperlocal",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Belzo uses your location to deliver orders right to your doorstep.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Belzo requires background location to track active delivery routes.",
-        "NSCameraUsageDescription": "Belzo uses your camera to scan dark store package barcodes and capture contactless delivery confirmation.",
-        "UIBackgroundModes": [
-          "location",
-          "fetch",
-          "remote-notification"
-        ]
+        "NSLocationWhenInUseUsageDescription": "Belzo collects location data to find nearby dark stores and autofill your doorstep delivery address.",
+        "NSCameraUsageDescription": "Belzo uses your camera to scan package barcodes and capture contactless delivery confirmation."
       }
     },
     "android": {
@@ -32,7 +26,7 @@
       "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#FF5E00"
       },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
@@ -49,8 +43,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Belzo requires background location to track active delivery routes.",
-          "isAndroidBackgroundLocationEnabled": true
+          "locationWhenInUsePermission": "Belzo collects location data to find nearby dark stores and autofill your doorstep delivery address."
         }
       ],
       "expo-image"
