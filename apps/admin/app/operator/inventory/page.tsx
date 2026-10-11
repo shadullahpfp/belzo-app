@@ -1,7 +1,9 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import React, { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
 import {
   Search,
   Plus,
@@ -10,14 +12,17 @@ import {
   X,
   Package,
   RefreshCw,
-  AlertCircle,
   Tag,
+  DollarSign,
+  TrendingDown,
 } from 'lucide-react';
 import { supabase, JONIHA_HUB_ID } from '../../../lib/supabase';
+import { ImageUploader } from '../../../components/ImageUploader';
 
 interface InventoryItem {
   id: string;
   name: string;
+  description?: string;
   category_id?: string;
   category: string;
   unit: string;
@@ -36,6 +41,15 @@ interface CategoryOption {
   slug: string;
 }
 
+const CANONICAL_CATEGORIES = [
+  'Grocery',
+  'Fruits & Vegetables',
+  'Food & Restaurant',
+  'Medicine',
+  'Fashion',
+  'Electronics',
+];
+
 export default function InventoryPricingPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [categoriesList, setCategoriesList] = useState<CategoryOption[]>([]);
@@ -44,7 +58,7 @@ export default function InventoryPricingPage() {
   const [selectedCat, setSelectedCat] = useState('All');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Inline editing state: itemId -> price string
+  // Inline editing state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState<string>('');
   const [editDiscountPrice, setEditDiscountPrice] = useState<string>('');
@@ -53,6 +67,7 @@ export default function InventoryPricingPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newDescription, setNewDescription] = useState('');
   const [newCatId, setNewCatId] = useState('');
   const [newUnit, setNewUnit] = useState('');
   const [newPrice, setNewPrice] = useState('');
@@ -67,16 +82,15 @@ export default function InventoryPricingPage() {
     }, 2800);
   };
 
-  // 1. Fetch live categories & products from Supabase
+  // 1. Fetch live categories & products from Supabase (Zero-Cache, Full-Catalog)
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Fetch Categories
+      // Fetch all active/existing Categories
       const { data: catsData } = await supabase
         .from('categories')
         .select('id, name, slug')
-        .eq('is_active', true)
         .order('sort_order', { ascending: true });
 
       const cats: CategoryOption[] = catsData || [];
@@ -85,51 +99,49 @@ export default function InventoryPricingPage() {
         setNewCatId(cats[0].id);
       }
 
+      // Helper to resolve category display name
+      const resolveCategoryName = (p: any): string => {
+        if (p.categories?.name) return p.categories.name;
+        if (p.category_id) {
+          const matched = cats.find(
+            (c) => c.id === p.category_id || c.slug === p.category_id
+          );
+          if (matched) return matched.name;
+          if (p.category_id.includes('produce')) return 'Fruits & Vegetables';
+          if (p.category_id.includes('grocery')) return 'Grocery';
+          if (p.category_id.includes('food')) return 'Food & Restaurant';
+          if (p.category_id.includes('pharma')) return 'Medicine';
+          if (p.category_id.includes('fashion')) return 'Fashion';
+          if (p.category_id.includes('electronics')) return 'Electronics';
+        }
+        return 'General';
+      };
+
       // Fetch Products for Joniha Hub
-      const { data: prodsData, error: prodsErr } = await supabase
+      let { data: prodsData, error: prodsErr } = await supabase
         .from('products')
-        .select('*, categories (name)')
+        .select('*, categories (id, name, slug)')
         .eq('store_id', JONIHA_HUB_ID)
         .order('name', { ascending: true });
 
-      if (prodsErr) {
-        // Fallback if joined relation name differs or store_id is null
+      // Fallback: If store_id query returned nothing or errored, fetch all products
+      if (prodsErr || !prodsData || prodsData.length === 0) {
         const { data: fallbackData } = await supabase
           .from('products')
-          .select('*')
+          .select('*, categories (id, name, slug)')
           .order('name', { ascending: true });
-
-        if (fallbackData) {
-          const mapped: InventoryItem[] = fallbackData.map((p: any) => {
-            const catObj = cats.find((c) => c.id === p.category_id);
-            return {
-              id: p.id,
-              name: p.name,
-              category_id: p.category_id,
-              category: catObj ? catObj.name : 'General',
-              unit: p.unit || '1 pc',
-              price: Number(p.price) || 0,
-              discount_price: p.discount_price ? Number(p.discount_price) : undefined,
-              mrp: Number(p.price) ? Math.round(Number(p.price) * 1.2) : 0,
-              stock: Number(p.stock_quantity) || 0,
-              is_available: p.is_available ?? true,
-              image:
-                p.image_url ||
-                (p.media_urls && p.media_urls[0]) ||
-                'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=200&q=80',
-              sku: `SKU-${p.id.slice(0, 6).toUpperCase()}`,
-            };
-          });
-          setItems(mapped);
-        } else {
-          setItems([]);
+        if (fallbackData && fallbackData.length > 0) {
+          prodsData = fallbackData;
         }
-      } else if (prodsData) {
+      }
+
+      if (prodsData) {
         const mapped: InventoryItem[] = prodsData.map((p: any) => ({
           id: p.id,
           name: p.name,
+          description: p.description || '',
           category_id: p.category_id,
-          category: p.categories?.name || 'General',
+          category: resolveCategoryName(p),
           unit: p.unit || '1 pc',
           price: Number(p.price) || 0,
           discount_price: p.discount_price ? Number(p.discount_price) : undefined,
@@ -138,10 +150,13 @@ export default function InventoryPricingPage() {
           is_available: p.is_available ?? true,
           image:
             p.image_url ||
+            (p.media_urls && p.media_urls[0]) ||
             'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=200&q=80',
           sku: `SKU-${p.id.slice(0, 6).toUpperCase()}`,
         }));
         setItems(mapped);
+      } else {
+        setItems([]);
       }
     } catch (err) {
       console.warn('[Operator Inventory] Error fetching products:', err);
@@ -171,16 +186,70 @@ export default function InventoryPricingPage() {
     };
   }, [loadData]);
 
-  const categories = ['All', ...categoriesList.map((c) => c.name)];
+  // Robust category matching for tabs
+  const matchesCategoryTab = (itemCategory: string, tab: string) => {
+    if (tab.startsWith('All')) return true;
+    const itemNorm = itemCategory.toLowerCase();
+    const tabNorm = tab.toLowerCase();
+
+    if (itemNorm === tabNorm) return true;
+    if (tabNorm === 'fruits & vegetables' || tabNorm === 'produce') {
+      return (
+        itemNorm.includes('fruit') ||
+        itemNorm.includes('vegetable') ||
+        itemNorm.includes('sabzi') ||
+        itemNorm.includes('produce')
+      );
+    }
+    if (tabNorm === 'medicine' || tabNorm === 'pharma') {
+      return (
+        itemNorm.includes('medicine') ||
+        itemNorm.includes('pharma') ||
+        itemNorm.includes('healthcare')
+      );
+    }
+    if (tabNorm === 'food & restaurant' || tabNorm === 'food') {
+      return (
+        itemNorm.includes('food') ||
+        itemNorm.includes('restaurant') ||
+        itemNorm.includes('kitchen') ||
+        itemNorm.includes('meal') ||
+        itemNorm.includes('pizza')
+      );
+    }
+    if (tabNorm === 'grocery') {
+      return (
+        itemNorm.includes('grocery') ||
+        itemNorm.includes('kirana') ||
+        itemNorm.includes('staples') ||
+        itemNorm.includes('oil') ||
+        itemNorm.includes('spices')
+      );
+    }
+    if (tabNorm === 'fashion') return itemNorm.includes('fashion');
+    if (tabNorm === 'electronics') return itemNorm.includes('electronic');
+
+    return itemNorm.includes(tabNorm);
+  };
+
+  // Build category tabs with total item count
+  const allTabs = [
+    `All (${items.length})`,
+    ...CANONICAL_CATEGORIES,
+    ...categoriesList
+      .map((c) => c.name)
+      .filter((n) => !CANONICAL_CATEGORIES.some((canon) => canon.toLowerCase() === n.toLowerCase())),
+  ];
 
   const filteredItems = items.filter((item) => {
-    const matchesCat = selectedCat === 'All' || item.category === selectedCat;
+    const matchesCat = matchesCategoryTab(item.category, selectedCat);
     const q = search.toLowerCase().trim();
     const matchesSearch =
       !q ||
       item.name.toLowerCase().includes(q) ||
       item.sku.toLowerCase().includes(q) ||
-      item.category.toLowerCase().includes(q);
+      item.category.toLowerCase().includes(q) ||
+      (item.description && item.description.toLowerCase().includes(q));
     return matchesCat && matchesSearch;
   });
 
@@ -203,7 +272,11 @@ export default function InventoryPricingPage() {
       )
     );
 
-    showToast(nextAvailability ? `Marked "${currentItem.name}" as In Stock` : `Marked "${currentItem.name}" as Sold Out`);
+    showToast(
+      nextAvailability
+        ? `Marked "${currentItem.name}" as In Stock`
+        : `Marked "${currentItem.name}" as Sold Out`
+    );
 
     try {
       const { error } = await supabase
@@ -231,7 +304,7 @@ export default function InventoryPricingPage() {
     );
   };
 
-  // Save inline edit -> commits update to Supabase products
+  // Save inline edit -> commits update to Supabase products & broadcasts
   const saveEditing = async (itemId: string) => {
     const p = parseFloat(editPrice);
     const dp = editDiscountPrice ? parseFloat(editDiscountPrice) : undefined;
@@ -261,7 +334,7 @@ export default function InventoryPricingPage() {
         if (error) {
           console.warn('Supabase price update error:', error.message);
         } else {
-          showToast('Price updated successfully! 🏷️');
+          showToast('Price updated & broadcast live! 🏷️');
         }
       } catch (err) {
         console.warn('Supabase price update error:', err);
@@ -281,7 +354,8 @@ export default function InventoryPricingPage() {
     const p = parseFloat(newPrice);
     const m = newMrp ? parseFloat(newMrp) : undefined;
     const stk = parseInt(newStock) || 25;
-    const resolvedCatId = newCatId || (categoriesList[0] ? categoriesList[0].id : null);
+    const resolvedCatId =
+      newCatId || (categoriesList[0] ? categoriesList[0].id : null);
 
     setIsSubmitting(true);
     try {
@@ -297,7 +371,9 @@ export default function InventoryPricingPage() {
         image_url:
           newImageUrl.trim() ||
           'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80',
-        description: `Fresh stock available at Joniha Central Hub. Unit: ${newUnit.trim()}.`,
+        description:
+          newDescription.trim() ||
+          `Fresh stock available at Joniha Central Hub. Unit: ${newUnit.trim()}.`,
       };
 
       const { data, error } = await supabase
@@ -312,6 +388,7 @@ export default function InventoryPricingPage() {
         showToast(`Added "${newName.trim()}" to Joniha Catalog! ✨`);
         setShowAddModal(false);
         setNewName('');
+        setNewDescription('');
         setNewUnit('');
         setNewPrice('');
         setNewMrp('');
@@ -334,14 +411,14 @@ export default function InventoryPricingPage() {
             Catalog & Price Controller
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Joniha Central Hub 01 • Instant stock switches, inline price edits, and master inventory.
+            Joniha Central Hub 01 • Instant stock switches, direct image file uploads, and real-time prices.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
             onClick={() => loadData()}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-all"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-all cursor-pointer"
             title="Refresh catalog"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -349,7 +426,7 @@ export default function InventoryPricingPage() {
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all active:scale-[0.97]"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all active:scale-[0.97] cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             Quick Add Product
@@ -365,26 +442,30 @@ export default function InventoryPricingPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search catalog, SKU, category..."
+            placeholder="Search catalog, SKU, category, electronics..."
             className="w-full bg-white border border-black/5 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#FF5E00] shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
           />
         </div>
 
         {/* Category Pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCat(cat)}
-              className={`px-3 py-1.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border ${
-                selectedCat === cat
-                  ? 'bg-gray-950 text-white border-gray-950 shadow-sm'
-                  : 'bg-white text-gray-600 border-black/5 hover:bg-gray-50'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+          {allTabs.map((cat) => {
+            const isSelected =
+              selectedCat === cat || (cat.startsWith('All') && selectedCat === 'All');
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCat(cat.startsWith('All') ? 'All' : cat)}
+                className={`px-3 py-1.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border cursor-pointer ${
+                  isSelected
+                    ? 'bg-gray-950 text-white border-gray-950 shadow-sm'
+                    : 'bg-white text-gray-600 border-black/5 hover:bg-gray-50'
+                }`}
+              >
+                {cat}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -394,7 +475,7 @@ export default function InventoryPricingPage() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                <th className="py-3.5 px-5">Item / SKU</th>
+                <th className="py-3.5 px-5">Item / Direct Photo Upload</th>
                 <th className="py-3.5 px-4">Category</th>
                 <th className="py-3.5 px-4">Pack Unit</th>
                 <th className="py-3.5 px-4">Selling Price (₹)</th>
@@ -411,19 +492,21 @@ export default function InventoryPricingPage() {
                     !item.is_available ? 'bg-gray-50/30 opacity-70' : ''
                   }`}
                 >
-                  {/* Item / Image */}
+                  {/* Item / Direct Photo Upload */}
                   <td className="py-3.5 px-5">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-gray-100 border border-black/5 overflow-hidden relative shrink-0">
-                        <img
-                          src={item.image}
-                          alt={item.name}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as any).src = 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=200&q=80';
-                          }}
-                        />
-                      </div>
+                      <ImageUploader
+                        productId={item.id}
+                        currentImageUrl={item.image}
+                        onUploadComplete={(newUrl) => {
+                          setItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id ? { ...i, image: newUrl } : i
+                            )
+                          );
+                          showToast(`Updated image for "${item.name}"! 📸`);
+                        }}
+                      />
                       <div>
                         <p className="font-extrabold text-gray-950 text-xs">{item.name}</p>
                         <p className="text-[10px] text-gray-400 font-mono mt-0.5">{item.sku}</p>
@@ -445,27 +528,41 @@ export default function InventoryPricingPage() {
                   <td className="py-3.5 px-4">
                     {editingId === item.id ? (
                       <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          value={editPrice}
-                          onChange={(e) => setEditPrice(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveEditing(item.id);
-                            if (e.key === 'Escape') setEditingId(null);
-                          }}
-                          className="w-16 px-2 py-1 bg-white border border-[#FF5E00] rounded-xl text-xs font-bold text-gray-950 focus:outline-none"
-                          autoFocus
-                        />
+                        <div className="flex flex-col gap-1">
+                          <input
+                            type="number"
+                            value={editPrice}
+                            placeholder="Price"
+                            onChange={(e) => setEditPrice(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveEditing(item.id);
+                              if (e.key === 'Escape') setEditingId(null);
+                            }}
+                            className="w-20 px-2 py-1 bg-white border border-[#FF5E00] rounded-xl text-xs font-bold text-gray-950 focus:outline-none"
+                            autoFocus
+                          />
+                          <input
+                            type="number"
+                            value={editDiscountPrice}
+                            placeholder="Discount ₹"
+                            onChange={(e) => setEditDiscountPrice(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveEditing(item.id);
+                              if (e.key === 'Escape') setEditingId(null);
+                            }}
+                            className="w-20 px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-xl text-[10px] text-gray-600 focus:outline-none"
+                          />
+                        </div>
                         <button
                           onClick={() => saveEditing(item.id)}
-                          className="p-1 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                          className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 cursor-pointer"
                           title="Save price"
                         >
                           <Check className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => setEditingId(null)}
-                          className="p-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200"
+                          className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 cursor-pointer"
                           title="Cancel"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -481,11 +578,11 @@ export default function InventoryPricingPage() {
                           ₹{item.price}
                         </span>
                         {item.discount_price && item.discount_price < item.price && (
-                          <span className="text-[10px] text-gray-400 line-through tabular-nums">
-                            ₹{item.discount_price}
+                          <span className="text-[10px] text-emerald-600 font-bold tabular-nums">
+                            (Sale ₹{item.discount_price})
                           </span>
                         )}
-                        <Edit2 className="w-3 h-3 text-gray-300 group-hover:text-gray-600 transition-colors opacity-0 group-hover:opacity-100" />
+                        <Edit2 className="w-3 h-3 text-gray-300 group-hover:text-[#FF5E00] transition-colors opacity-0 group-hover:opacity-100" />
                       </div>
                     )}
                   </td>
@@ -494,7 +591,11 @@ export default function InventoryPricingPage() {
                   <td className="py-3.5 px-4">
                     <span
                       className={`font-bold tabular-nums ${
-                        item.stock === 0 ? 'text-red-500' : item.stock < 10 ? 'text-amber-500' : 'text-gray-800'
+                        item.stock === 0
+                          ? 'text-red-500'
+                          : item.stock < 10
+                          ? 'text-amber-500'
+                          : 'text-gray-800'
                       }`}
                     >
                       {item.stock} units
@@ -505,7 +606,7 @@ export default function InventoryPricingPage() {
                   <td className="py-3.5 px-4">
                     <button
                       onClick={() => handleToggleStock(item.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all active:scale-[0.97] ${
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all active:scale-[0.97] cursor-pointer ${
                         item.is_available
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                           : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
@@ -524,7 +625,7 @@ export default function InventoryPricingPage() {
                   <td className="py-3.5 px-4 text-right">
                     <button
                       onClick={() => startEditing(item)}
-                      className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[11px] transition-all"
+                      className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[11px] transition-all cursor-pointer"
                     >
                       Edit Price
                     </button>
@@ -534,7 +635,7 @@ export default function InventoryPricingPage() {
             </tbody>
           </table>
 
-          {/* Apple-grade Quiet Empty State */}
+          {/* Quiet Empty State */}
           {!loading && filteredItems.length === 0 && (
             <div className="py-20 px-4 flex flex-col items-center justify-center text-center">
               <div className="w-14 h-14 rounded-3xl bg-gray-50 border border-black/5 flex items-center justify-center text-gray-400 mb-3.5 shadow-sm">
@@ -550,7 +651,7 @@ export default function InventoryPricingPage() {
               </p>
               <button
                 onClick={() => setShowAddModal(true)}
-                className="mt-4 px-4 py-2 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all"
+                className="mt-4 px-4 py-2 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all cursor-pointer"
               >
                 + Add First Product
               </button>
@@ -567,34 +668,60 @@ export default function InventoryPricingPage() {
         </div>
       )}
 
-      {/* Quick Add Product Modal */}
+      {/* Quick Add Product Modal with Direct Image Uploader */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-lg bg-white border border-black/5 rounded-3xl p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-lg bg-white border border-black/5 rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div>
                 <h3 className="text-lg font-extrabold text-gray-950">Add Catalog Product</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Insert a real SKU into Supabase `products` for Joniha Central Hub.
+                  Insert a real SKU into Supabase `products` with direct file upload.
                 </p>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200"
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleQuickAddProduct} className="space-y-3.5">
+              {/* Product Direct Image Uploader */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                  Product Image (Direct File / Camera)
+                </label>
+                <ImageUploader
+                  productId={`temp-${Date.now()}`}
+                  currentImageUrl={newImageUrl}
+                  onUploadComplete={(url) => {
+                    setNewImageUrl(url);
+                    showToast('Photo uploaded successfully! 📸');
+                  }}
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1">Product Title</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Amul Taaza Fresh Toned Milk"
+                  placeholder="e.g. Amul Taaza Fresh Toned Milk / boAt Wave Call Smartwatch"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
+                  className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Short product overview or specifications..."
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
                   className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
                 />
               </div>
@@ -619,7 +746,7 @@ export default function InventoryPricingPage() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. 500 ml / 1 kg / 6 pcs"
+                    placeholder="e.g. 500 ml / 1 kg / 1 pc"
                     value={newUnit}
                     onChange={(e) => setNewUnit(e.target.value)}
                     className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
@@ -641,7 +768,7 @@ export default function InventoryPricingPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">MRP (₹)</label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">MRP / Discount (₹)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -664,29 +791,18 @@ export default function InventoryPricingPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Image URL (Unsplash or CDN)</label>
-                <input
-                  type="url"
-                  placeholder="https://images.unsplash.com/..."
-                  value={newImageUrl}
-                  onChange={(e) => setNewImageUrl(e.target.value)}
-                  className="w-full bg-gray-50 border border-black/5 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 focus:outline-none focus:border-[#FF5E00]"
-                />
-              </div>
-
               <div className="pt-2 flex justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2.5 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-all"
+                  className="px-4 py-2.5 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2.5 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50"
+                  className="px-5 py-2.5 rounded-2xl bg-[#FF5E00] hover:bg-[#E05300] text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 cursor-pointer"
                 >
                   {isSubmitting ? 'Inserting...' : 'Commit to Supabase'}
                 </button>

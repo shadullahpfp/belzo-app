@@ -1,5 +1,8 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Package, 
@@ -9,12 +12,13 @@ import {
   Edit3, 
   Trash2, 
   X, 
-  Minus,
-  RefreshCw,
-  CheckCircle2,
-  Tag
+  Minus, 
+  RefreshCw, 
+  CheckCircle2, 
+  Tag 
 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
+import { ImageUploader } from '../../../components/ImageUploader';
 
 interface Product {
   id: string;
@@ -71,23 +75,37 @@ export default function AdminProductsPage() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch categories
+      // 1. Fetch categories (no is_active filter so all 6 verticals are visible)
       const { data: catData } = await supabase
         .from('categories')
-        .select('id, name')
-        .eq('is_active', true)
+        .select('id, name, slug')
         .order('sort_order', { ascending: true });
 
       const fetchedCategories: CategoryOption[] = catData || [];
       setCategories(fetchedCategories);
 
+      const resolveCatName = (p: any): string => {
+        if (p.categories?.name) return p.categories.name;
+        if (p.category_id) {
+          const matched = fetchedCategories.find((c) => c.id === p.category_id);
+          if (matched) return matched.name;
+          if (p.category_id.includes('produce')) return 'Fruits & Vegetables';
+          if (p.category_id.includes('grocery')) return 'Grocery';
+          if (p.category_id.includes('food')) return 'Food & Restaurant';
+          if (p.category_id.includes('pharma')) return 'Medicine';
+          if (p.category_id.includes('fashion')) return 'Fashion';
+          if (p.category_id.includes('electronics')) return 'Electronics';
+        }
+        return 'General';
+      };
+
       // 2. Fetch products joined with categories
       const { data: prodData, error: prodErr } = await supabase
         .from('products')
-        .select('*, categories(id, name)')
+        .select('*, categories(id, name, slug)')
         .order('created_at', { ascending: false });
 
-      if (prodErr) {
+      if (prodErr || !prodData) {
         // Fallback without join alias
         const { data: fallbackData } = await supabase
           .from('products')
@@ -95,23 +113,20 @@ export default function AdminProductsPage() {
           .order('name', { ascending: true });
 
         if (fallbackData) {
-          const formatted: Product[] = fallbackData.map((p: any) => {
-            const cat = fetchedCategories.find((c) => c.id === p.category_id);
-            return {
-              id: p.id,
-              store_id: p.store_id || PRIMARY_STORE_ID,
-              name: p.name,
-              category_id: p.category_id,
-              category_name: cat?.name || 'General',
-              unit: p.unit || '1 pc',
-              price: Number(p.price) || 0,
-              discount_price: p.discount_price ? Number(p.discount_price) : null,
-              stock_quantity: p.stock_quantity ?? p.stock ?? 0,
-              is_available: Boolean(p.is_available),
-              image_url: p.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400',
-              description: p.description || ''
-            };
-          });
+          const formatted: Product[] = fallbackData.map((p: any) => ({
+            id: p.id,
+            store_id: p.store_id || PRIMARY_STORE_ID,
+            name: p.name,
+            category_id: p.category_id,
+            category_name: resolveCatName(p),
+            unit: p.unit || '1 pc',
+            price: Number(p.price) || 0,
+            discount_price: p.discount_price ? Number(p.discount_price) : null,
+            stock_quantity: p.stock_quantity ?? p.stock ?? 0,
+            is_available: Boolean(p.is_available),
+            image_url: p.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400',
+            description: p.description || ''
+          }));
           setProducts(formatted);
         } else {
           setProducts([]);
@@ -122,7 +137,7 @@ export default function AdminProductsPage() {
           store_id: p.store_id || PRIMARY_STORE_ID,
           name: p.name,
           category_id: p.category_id,
-          category_name: p.categories?.name || 'General',
+          category_name: resolveCatName(p),
           unit: p.unit || '1 pc',
           price: Number(p.price) || 0,
           discount_price: p.discount_price ? Number(p.discount_price) : null,
@@ -508,16 +523,18 @@ export default function AdminProductsPage() {
                   <tr key={product.id} className="hover:bg-gray-50/60 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 rounded-2xl bg-gray-100 border border-black/5 overflow-hidden relative shrink-0">
-                          <img
-                            src={product.image_url}
-                            alt={product.name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as any).src = 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400';
-                            }}
-                          />
-                        </div>
+                        <ImageUploader
+                          productId={product.id}
+                          currentImageUrl={product.image_url}
+                          onUploadComplete={(newUrl) => {
+                            setProducts((prev) =>
+                              prev.map((p) =>
+                                p.id === product.id ? { ...p, image_url: newUrl } : p
+                              )
+                            );
+                            showToast(`Updated image for "${product.name}"! 📸`);
+                          }}
+                        />
                         <div>
                           <p className="font-extrabold text-gray-950 text-xs">{product.name}</p>
                           <p className="text-[10px] text-gray-400 font-mono mt-0.5">
@@ -764,14 +781,15 @@ export default function AdminProductsPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">
-                  Product Image URL
+                  Product Photo (Direct File / Camera)
                 </label>
-                <input
-                  type="url"
-                  placeholder="https://images.unsplash.com/photo-..."
-                  value={formData.image_url}
-                  onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-sm text-gray-900 focus:outline-none focus:border-[#FF5E00]"
+                <ImageUploader
+                  productId={editingProduct ? editingProduct.id : `temp-${Date.now()}`}
+                  currentImageUrl={formData.image_url}
+                  onUploadComplete={(url) => {
+                    setFormData((prev) => ({ ...prev, image_url: url }));
+                    showToast('Product photo uploaded successfully! 📸');
+                  }}
                 />
               </div>
 
