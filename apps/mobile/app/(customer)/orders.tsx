@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -46,67 +47,22 @@ interface OrderSummary {
   }[];
 }
 
-const INITIAL_ORDERS: OrderSummary[] = [
-  {
-    id: 'ord-8492',
-    short_code: 'BLZ-8492',
-    created_at: 'Today, 17:30 PM',
-    status: 'out_for_delivery',
-    total_amount: 267,
-    subtotal: 242,
-    delivery_fee: 25,
-    items_count: 3,
-    delivery_address: 'Ward No. 4, Shahbajpur, Joniha, Bindki',
-    items: [
-      { id: 'p1', name: 'Farm Fresh Whole Milk', unit: '1 Litre Pouch', price: 62, quantity: 2 },
-      { id: 'p2', name: 'Artisan Sourdough Loaf', unit: '400g Pack', price: 95, quantity: 1 },
-      { id: 'p3', name: 'Belzo Cold Brew Coffee', unit: '250ml Can', price: 120, quantity: 1 }
-    ]
-  },
-  {
-    id: 'ord-8104',
-    short_code: 'BLZ-8104',
-    created_at: 'Yesterday, 14:15 PM',
-    status: 'delivered',
-    total_amount: 599,
-    subtotal: 574,
-    delivery_fee: 25,
-    items_count: 1,
-    delivery_address: 'Ward No. 4, Shahbajpur, Joniha, Bindki',
-    items: [
-      { id: 'p4', name: 'Alphonso Mango Box (Grade A)', unit: '6 Pieces (~1.5kg)', price: 599, quantity: 1 }
-    ]
-  },
-  {
-    id: 'ord-7940',
-    short_code: 'BLZ-7940',
-    created_at: '14 Feb 2026, 09:20 AM',
-    status: 'delivered',
-    total_amount: 340,
-    subtotal: 315,
-    delivery_fee: 25,
-    items_count: 3,
-    delivery_address: 'Ward No. 4, Shahbajpur, Joniha, Bindki',
-    items: [
-      { id: 'p1', name: 'Farm Fresh Whole Milk', unit: '1 Litre Pouch', price: 62, quantity: 1 },
-      { id: 'p5', name: 'Avocado Hass Ready-to-Eat', unit: 'Pack of 2', price: 199, quantity: 1 },
-      { id: 'p6', name: 'Baby Spinach Leaves', unit: '200g Box', price: 52, quantity: 1 }
-    ]
-  }
-];
+
 
 export default function OrderHistoryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { clearCart, addItem, updateQuantity } = useCartStore();
 
-  const [orders, setOrders] = useState<OrderSummary[]>(INITIAL_ORDERS);
+  const [orders, setOrders] = useState<OrderSummary[]>([]);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [selectedReceipt, setSelectedReceipt] = useState<OrderSummary | null>(null);
 
   // Sync Supabase orders
   useEffect(() => {
     async function loadOrders() {
       try {
+        setIsLoadingOrders(true);
         const { data: { session } } = await supabase.auth.getSession();
         let query = supabase
           .from('orders')
@@ -162,7 +118,9 @@ export default function OrderHistoryScreen() {
           setOrders(mapped);
         }
       } catch {
-        // Fallback to initial mock orders
+        // No fallback mock — show empty state
+      } finally {
+        setIsLoadingOrders(false);
       }
     }
     loadOrders();
@@ -250,7 +208,21 @@ export default function OrderHistoryScreen() {
         </Text>
 
         <View style={styles.ordersList}>
-          {orders.map((order) => {
+          {isLoadingOrders ? (
+            <View style={styles.emptyStateBox}>
+              <ActivityIndicator size="large" color="#FF5E00" />
+              <Text style={styles.emptyStateText}>Loading your orders…</Text>
+            </View>
+          ) : orders.length === 0 ? (
+            <View style={styles.emptyStateBox}>
+              <ShoppingBag size={40} color="#D1D5DB" />
+              <Text style={styles.emptyStateTitle}>No Orders Yet</Text>
+              <Text style={styles.emptyStateText}>
+                Your order history will appear here once you place your first Belzo delivery.
+              </Text>
+            </View>
+          ) : null}
+          {!isLoadingOrders && orders.map((order) => {
             const isActive =
               order.status === 'placed' ||
               order.status === 'ready_for_pickup' ||
@@ -422,6 +394,28 @@ const styles = StyleSheet.create({
   },
   ordersList: {
     gap: 14,
+  },
+  emptyStateBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.06)',
+    gap: 12,
+  },
+  emptyStateTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  emptyStateText: {
+    fontSize: 13,
+    color: '#8E8E93',
+    textAlign: 'center',
+    paddingHorizontal: 24,
+    lineHeight: 20,
   },
   orderCard: {
     backgroundColor: '#FFFFFF',

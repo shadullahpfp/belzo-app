@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,12 @@ import {
   Linking,
   Modal,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import {
   ArrowLeft,
   ShoppingBag,
@@ -26,10 +28,12 @@ import {
   ChevronRight,
   X,
   Edit2,
+  MapPin,
 } from 'lucide-react-native';
 import { useAuth } from '../_layout';
 import { useCartStore } from '../../store/useCartStore';
 import { CompleteProfileSheet } from '../../components/profile/CompleteProfileSheet';
+import { supabase } from '../../src/lib/supabase';
 
 interface SavedAddress {
   id: string;
@@ -39,42 +43,156 @@ interface SavedAddress {
   is_default: boolean;
 }
 
-const INITIAL_ADDRESSES: SavedAddress[] = [
-  {
-    id: 'addr-01',
-    tag: 'Home',
-    label: 'Primary Residence',
-    address: 'Ward No. 4, Shahbajpur, Joniha, Bindki Road, Fatehpur 212635',
-    is_default: true,
-  },
-  {
-    id: 'addr-02',
-    tag: 'Work',
-    label: 'Joniha Central Office',
-    address: 'Shop 12, Bindki Road, Joniha Chauraha, Fatehpur 212635',
-    is_default: false,
-  },
-];
-
 export default function CustomerProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { signOut, user, profile } = useAuth();
   const { clearCart } = useCartStore();
 
-  const [addresses, setAddresses] = useState<SavedAddress[]>(INITIAL_ADDRESSES);
+  const [addresses, setAddresses] = useState<SavedAddress[]>([]);
+  const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [newTag, setNewTag] = useState<'Home' | 'Work' | 'Other'>('Home');
   const [newLabel, setNewLabel] = useState('');
   const [newAddressText, setNewAddressText] = useState('');
+  const [isFetchingGps, setIsFetchingGps] = useState(false);
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
+
+  // ─── Load addresses from Supabase ─────────────────────────────────────────
+  useEffect(() => {
+    loadAddresses();
+  }, [user?.id]);
+
+  async function loadAddresses() {
+    if (!user?.id) {
+      setLoadingAddresses(false);
+      return;
+    }
+    try {
+      setLoadingAddresses(true);
+      const { data, error } = await supabase
+        .from('addresses')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('is_default', { ascending: false });
+
+      if (!error && data) {
+        const mapped: SavedAddress[] = data.map((a: any) => ({
+          id: a.id,
+          tag: (a.tag as SavedAddress['tag']) || 'Home',
+          label: a.label || a.tag || 'Address',
+          address:
+            [a.house_flat_no, a.apartment_road_area, a.city, a.pincode]
+              .filter(Boolean)
+              .join(', ') ||
+            a.address_text ||
+            'Saved Address',
+          is_default: Boolean(a.is_default),
+        }));
+        setAddresses(mapped);
+      } else {
+        setAddresses([]);
+      }
+    } catch {
+      setAddresses([]);
+    } finally {
+      setLoadingAddresses(false);
+    }
+  }
+
+  // ─── GPS auto-fill ─────────────────────────────────────────────────────────
+  const handleUseGpsLocation = async () => {
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+    setIsFetchingGps(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Enable location in Settings to use GPS auto-fill.');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const geo = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      if (geo && geo.length > 0) {
+        const g = geo[0];
+        const parts = [g.streetNumber, g.street, g.district || g.subregion, g.city, g.postalCode].filter(Boolean);
+        setNewAddressText(parts.join(', '));
+        if (!newLabel) setNewLabel(newTag);
+      } else {
+        Alert.alert('GPS Unavailable', 'Could not resolve location. Please type manually.');
+      }
+    } catch {
+      Alert.alert('GPS Error', 'Unable to fetch location. Please type your address manually.');
+    } finally {
+      setIsFetchingGps(false);
+    }
+  };
+
+  // ─── Delete address ────────────────────────────────────────────────────────
+  const handleDeleteAddress = async (id: string) => {
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+    setAddresses((prev) => prev.filter((a) => a.id !== id));
+    if (user?.id) {
+      await supabase.from('addresses').delete().eq('id', id).eq('user_id', user.id);
+    }
+  };
+
+  // ─── Save address ──────────────────────────────────────────────────────────
+  const handleSaveAddress = async () => {
+    if (!newAddressText.trim()) {
+      Alert.alert('Missing Address', 'Please provide a street address.');
+      return;
+    }
+    setIsSavingAddress(true);
+    try {
+      const isFirstAddress = addresses.length === 0;
+      if (user?.id) {
+        const { data, error } = await supabase
+          .from('addresses')
+          .insert({
+            user_id: user.id,
+            tag: newTag,
+            label: newLabel || newTag,
+            address_text: newAddressText,
+            apartment_road_area: newAddressText,
+            is_default: isFirstAddress,
+          })
+          .select()
+          .single();
+        if (!error && data) {
+          setAddresses((prev) => [
+            ...prev,
+            {
+              id: data.id,
+              tag: (data.tag as SavedAddress['tag']) || newTag,
+              label: data.label || newTag,
+              address: data.address_text || newAddressText,
+              is_default: Boolean(data.is_default),
+            },
+          ]);
+        } else {
+          setAddresses((prev) => [...prev, { id: `tmp-${Date.now()}`, tag: newTag, label: newLabel || newTag, address: newAddressText, is_default: isFirstAddress }]);
+        }
+      } else {
+        setAddresses((prev) => [...prev, { id: `local-${Date.now()}`, tag: newTag, label: newLabel || newTag, address: newAddressText, is_default: addresses.length === 0 }]);
+      }
+      setIsAddModalOpen(false);
+      setNewLabel('');
+      setNewAddressText('');
+      setNewTag('Home');
+    } finally {
+      setIsSavingAddress(false);
+    }
+  };
 
   const handleSignOut = async () => {
     try {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     } catch {}
-
     Alert.alert('Sign Out', 'Are you sure you want to log out of your Belzo account?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -90,37 +208,8 @@ export default function CustomerProfileScreen() {
   };
 
   const handleSupport = () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
     Linking.openURL('tel:+919888812345');
-  };
-
-  const handleDeleteAddress = (id: string) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    setAddresses((prev) => prev.filter((a) => a.id !== id));
-  };
-
-  const handleSaveAddress = () => {
-    if (!newAddressText.trim()) {
-      Alert.alert('Missing Address', 'Please provide a street address.');
-      return;
-    }
-
-    const newAddr: SavedAddress = {
-      id: `addr-${Date.now()}`,
-      tag: newTag,
-      label: newLabel || newTag,
-      address: newAddressText,
-      is_default: addresses.length === 0,
-    };
-
-    setAddresses([...addresses, newAddr]);
-    setIsAddModalOpen(false);
-    setNewLabel('');
-    setNewAddressText('');
   };
 
   return (
@@ -205,7 +294,21 @@ export default function CustomerProfileScreen() {
           </View>
 
           <View style={styles.addressesList}>
-            {addresses.map((addr) => (
+            {loadingAddresses ? (
+              <View style={styles.emptyState}>
+                <ActivityIndicator size="small" color="#FF5E00" />
+                <Text style={styles.emptyStateText}>Loading addresses…</Text>
+              </View>
+            ) : addresses.length === 0 ? (
+              <View style={styles.emptyState}>
+                <MapPin size={28} color="#D1D5DB" />
+                <Text style={styles.emptyStateTitle}>No Saved Addresses</Text>
+                <Text style={styles.emptyStateText}>
+                  Tap "Add New" to save a delivery location.
+                </Text>
+              </View>
+            ) : (
+            addresses.map((addr) => (
               <View key={addr.id} style={styles.addressCard}>
                 <View style={styles.addrIconBox}>
                   {addr.tag === 'Home' ? (
@@ -235,7 +338,8 @@ export default function CustomerProfileScreen() {
                   <Trash2 size={16} color="#DC2626" />
                 </TouchableOpacity>
               </View>
-            ))}
+            ))
+            )}
           </View>
         </View>
 
@@ -312,6 +416,23 @@ export default function CustomerProfileScreen() {
                 style={styles.modalInput}
               />
 
+              {/* GPS Auto-fill Button */}
+              <TouchableOpacity
+                onPress={handleUseGpsLocation}
+                style={styles.gpsBtn}
+                activeOpacity={0.85}
+                disabled={isFetchingGps}
+              >
+                {isFetchingGps ? (
+                  <ActivityIndicator size="small" color="#FF5E00" />
+                ) : (
+                  <MapPin size={16} color="#FF5E00" />
+                )}
+                <Text style={styles.gpsBtnText}>
+                  {isFetchingGps ? 'Fetching GPS…' : '📍 Use Current GPS Location'}
+                </Text>
+              </TouchableOpacity>
+
               <TextInput
                 placeholder="Flat / Building / Street Address"
                 placeholderTextColor="#8E8E93"
@@ -324,10 +445,15 @@ export default function CustomerProfileScreen() {
 
               <TouchableOpacity
                 onPress={handleSaveAddress}
-                style={styles.saveAddrSubmitBtn}
+                style={[styles.saveAddrSubmitBtn, isSavingAddress && { opacity: 0.7 }]}
                 activeOpacity={0.92}
+                disabled={isSavingAddress}
               >
-                <Text style={styles.saveAddrSubmitBtnText}>Save Address</Text>
+                {isSavingAddress ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.saveAddrSubmitBtnText}>Save Address</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -562,6 +688,27 @@ const styles = StyleSheet.create({
   addressesList: {
     gap: 10,
   },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.06)',
+    gap: 8,
+  },
+  emptyStateTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  emptyStateText: {
+    fontSize: 12,
+    color: '#8E8E93',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
   addressCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -616,6 +763,23 @@ const styles = StyleSheet.create({
   },
   deleteAddrBtn: {
     padding: 6,
+  },
+  gpsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FFEDD5',
+    borderRadius: 14,
+    paddingVertical: 11,
+    marginBottom: 12,
+  },
+  gpsBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#C2410C',
   },
   menuBox: {
     backgroundColor: '#FFFFFF',
