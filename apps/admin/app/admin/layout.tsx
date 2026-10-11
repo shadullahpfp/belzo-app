@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
+import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard & Metrics', icon: LayoutDashboard },
@@ -221,6 +222,26 @@ export default function AdminLayout({
                 <p className="font-bold text-gray-900 leading-none">Super Admin</p>
                 <p className="text-[10px] text-gray-400 font-medium">Head of Ops</p>
               </div>
+            </div>
+
+            {/* Clerk Authentication Controls */}
+            <div className="flex items-center gap-2">
+              <SignedIn>
+                <UserButton
+                  appearance={{
+                    elements: {
+                      avatarBox: 'w-8 h-8 rounded-full border border-orange-200',
+                    },
+                  }}
+                />
+              </SignedIn>
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <button className="px-3 py-1.5 rounded-xl bg-[#FF5E00] hover:bg-[#e05300] text-white text-xs font-bold transition-all shadow-sm">
+                    Sign In
+                  </button>
+                </SignInButton>
+              </SignedOut>
             </div>
           </div>
         </header>

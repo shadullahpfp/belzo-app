@@ -10,6 +10,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
 import { playDispatchChime } from '../../lib/sound';
 
 export default function OperatorLayout({
@@ -105,6 +106,26 @@ export default function OperatorLayout({
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
               <span className="hidden sm:inline">CDC Realtime:</span> Live
+            </div>
+
+            {/* Clerk Authentication Controls */}
+            <div className="flex items-center gap-2">
+              <SignedIn>
+                <UserButton
+                  appearance={{
+                    elements: {
+                      avatarBox: 'w-8 h-8 rounded-full border border-orange-200',
+                    },
+                  }}
+                />
+              </SignedIn>
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <button className="px-3 py-1.5 rounded-xl bg-[#FF5E00] hover:bg-[#e05300] text-white text-xs font-bold transition-all shadow-sm">
+                    Sign In
+                  </button>
+                </SignInButton>
+              </SignedOut>
             </div>
           </div>
         </div>
