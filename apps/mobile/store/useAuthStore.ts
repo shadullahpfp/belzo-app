@@ -112,20 +112,47 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const hasValidAddress = !!data?.default_address;
       const isIncomplete = !hasValidPhone || !hasValidAddress;
 
+      let effectiveRole = (data?.role as any) || 'customer';
+      if (effectiveRole === 'rider') {
+        const { data: riderRow } = await supabase
+          .from('riders')
+          .select('*')
+          .or(`id.eq.${userId},user_id.eq.${userId}`)
+          .maybeSingle();
+
+        if (riderRow && riderRow.is_approved) {
+          effectiveRole = 'rider';
+          set({
+            rider: {
+              id: riderRow.id,
+              vehicle_type: riderRow.vehicle_type || 'Motorcycle',
+              vehicle_number: riderRow.vehicle_number || '',
+              license_number: riderRow.license_number || null,
+              is_online: riderRow.is_online ?? true,
+              rating: Number(riderRow.rating) || 5.0,
+              total_deliveries: riderRow.total_deliveries || 0,
+            },
+          });
+        } else {
+          effectiveRole = 'customer';
+          set({ rider: null });
+        }
+      }
+
       const userProfile: UserProfile = {
         id: userId,
         phone: phoneNumber || '',
         full_name: data?.full_name || fullName,
         email,
         avatar_url: avatarUrl,
-        role: (data?.role as any) || 'customer',
+        role: effectiveRole,
         is_active: data?.is_active ?? true,
         default_address: data?.default_address || null,
       };
 
       set({
         profile: userProfile,
-        role: userProfile.role,
+        role: effectiveRole,
         isLoading: false,
         isProfileIncomplete: isIncomplete,
         isProfileSheetOpen: isIncomplete,
@@ -146,6 +173,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         profile: fallbackProfile,
         role: 'customer',
+        rider: null,
         isLoading: false,
         isProfileIncomplete: true,
         isProfileSheetOpen: true,
@@ -164,11 +192,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (data && !error) {
         const userProfile = data as UserProfile;
-        const assignedRole = (userProfile.role || roleHint || 'customer') as any;
+        let assignedRole = (userProfile.role || roleHint || 'customer') as any;
         const phoneNumber = (data as any)?.phone || (data as any)?.phone_number || null;
         const hasValidPhone = !!phoneNumber && phoneNumber.trim().length >= 10;
         const hasValidAddress = !!(data as any)?.default_address;
         const isIncomplete = !hasValidPhone || !hasValidAddress || !userProfile.full_name;
+
+        if (assignedRole === 'rider') {
+          const riderInfo = await get().fetchRiderData(userId);
+          if (!riderInfo) {
+            assignedRole = 'customer';
+          }
+        }
+
+        userProfile.role = assignedRole;
 
         set({
           profile: userProfile,
@@ -178,10 +215,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isProfileSheetOpen: isIncomplete,
         });
 
-        if (assignedRole === 'rider') {
-          await get().fetchRiderData(userId);
-        }
-
         return userProfile;
       } else {
         // Fallback for new or offline profiles
@@ -190,12 +223,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           id: userId,
           phone: (currentUser as any)?.phone || '',
           full_name: (currentUser as any)?.fullName || null,
-          role: (roleHint as any) || 'customer',
+          role: 'customer',
           is_active: true,
         };
         set({
           profile: fallbackProfile,
-          role: (roleHint as any) || 'customer',
+          role: 'customer',
+          rider: null,
           isLoading: false,
           isProfileIncomplete: true,
           isProfileSheetOpen: true,
@@ -215,34 +249,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { data, error } = await supabase
         .from('riders')
         .select('*')
-        .eq('id', riderId)
+        .or(`id.eq.${riderId},user_id.eq.${riderId}`)
         .maybeSingle();
 
-      if (data && !error) {
+      if (data && !error && data.is_approved) {
         const riderInfo: RiderData = {
           id: data.id,
           vehicle_type: data.vehicle_type || 'Motorcycle',
-          vehicle_number: data.vehicle_number || 'UP-71-AB-1234',
+          vehicle_number: data.vehicle_number || '',
           license_number: data.license_number || null,
           is_online: data.is_online ?? true,
-          rating: Number(data.rating) || 4.95,
-          total_deliveries: data.total_deliveries || 18,
+          rating: Number(data.rating) || 5.0,
+          total_deliveries: data.total_deliveries || 0,
         };
-        set({ rider: riderInfo });
+        set({ rider: riderInfo, role: 'rider' });
         return riderInfo;
       } else {
-        const defaultRider: RiderData = {
-          id: riderId,
-          vehicle_type: 'Motorcycle',
-          vehicle_number: 'UP-71-AB-1234',
-          is_online: true,
-          rating: 4.95,
-          total_deliveries: 18,
-        };
-        set({ rider: defaultRider });
-        return defaultRider;
+        set({ rider: null, role: 'customer' });
+        return null;
       }
     } catch {
+      set({ rider: null, role: 'customer' });
       return null;
     }
   },

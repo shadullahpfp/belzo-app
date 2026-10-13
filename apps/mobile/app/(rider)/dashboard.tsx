@@ -8,8 +8,6 @@ import {
   StyleSheet,
   Image,
   Animated,
-  Modal,
-  TextInput,
   ActivityIndicator,
   Platform,
 } from 'react-native';
@@ -26,10 +24,8 @@ import {
   ChevronRight,
   ShieldCheck,
   Zap,
-  Edit2,
   Bike,
   User,
-  Check,
   X,
 } from 'lucide-react-native';
 import { useRiderStore, RiderOrder } from '../../store/useRiderStore';
@@ -54,60 +50,42 @@ export default function RiderDashboardScreen() {
 
   const [radarAnim] = useState(new Animated.Value(0.4));
   const [liveShiftMetrics, setLiveShiftMetrics] = useState({
-    todayEarnings: shiftMetrics.todayEarnings || 0,
-    completedCount: shiftMetrics.completedCount || 0,
+    todayEarnings: 0,
+    completedCount: 0,
   });
 
-  const [isEditRiderModalOpen, setIsEditRiderModalOpen] = useState(false);
-  const [editName, setEditName] = useState(profile?.full_name || '');
-  const [editVehicleNumber, setEditVehicleNumber] = useState(rider?.vehicle_number || 'UP-71-AB-1234');
-  const [editVehicleType, setEditVehicleType] = useState(rider?.vehicle_type || 'Motorcycle');
-  const [isSavingRider, setIsSavingRider] = useState(false);
-
-  useEffect(() => {
-    if (profile?.full_name) setEditName(profile.full_name);
-    if (rider?.vehicle_number) setEditVehicleNumber(rider.vehicle_number);
-    if (rider?.vehicle_type) setEditVehicleType(rider.vehicle_type);
-  }, [profile, rider]);
-
-  const handleSaveRider = async () => {
-    setIsSavingRider(true);
-    try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-
-    if (editName.trim()) {
-      await updateProfile({ full_name: editName.trim() });
-    }
-    await updateRiderDetails({
-      vehicle_number: editVehicleNumber.trim() || 'UP-71-AB-1234',
-      vehicle_type: editVehicleType || 'Motorcycle',
-    });
-
-    setIsSavingRider(false);
-    setIsEditRiderModalOpen(false);
-    try {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-  };
-
-  // Calculate live shift metrics from delivered orders
+  // Calculate live shift metrics strictly from Supabase delivered orders today
   const refreshShiftMetrics = async () => {
     try {
+      const today = new Date().toISOString().split('T')[0];
       const { data, error } = await supabase
         .from('orders')
-        .select('id, delivery_fee, total_amount, status')
-        .eq('status', 'delivered');
+        .select('id, delivery_fee, total_amount, status, created_at')
+        .eq('status', 'delivered')
+        .gte('created_at', `${today}T00:00:00.000Z`);
 
       if (!error && data) {
         const count = data.length;
-        const earnings = data.reduce((sum, o) => sum + (Number(o.delivery_fee) || 45), 0);
+        const earnings = data.reduce(
+          (sum, o) => sum + (Number(o.delivery_fee) || 45),
+          0
+        );
         setLiveShiftMetrics({
-          todayEarnings: earnings > 0 ? earnings : 1240,
-          completedCount: count > 0 ? count : 9,
+          todayEarnings: earnings,
+          completedCount: count,
+        });
+      } else {
+        setLiveShiftMetrics({
+          todayEarnings: 0,
+          completedCount: 0,
         });
       }
-    } catch {}
+    } catch {
+      setLiveShiftMetrics({
+        todayEarnings: 0,
+        completedCount: 0,
+      });
+    }
   };
 
   useEffect(() => {
@@ -215,12 +193,50 @@ export default function RiderDashboardScreen() {
     await toggleDutyStatus();
   };
 
+  if (profile?.role !== 'rider' || !rider) {
+    return (
+      <View style={[styles.screen, { paddingTop: Math.max(insets.top, 24) + 16, paddingHorizontal: 20 }]}>
+        <View style={styles.topBar}>
+          <Text style={styles.appTitle}>Belzo Courier</Text>
+          <TouchableOpacity onPress={signOut} style={styles.signOutBtn}>
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.dutyCard}>
+          <View style={{ alignItems: 'center', paddingVertical: 32, gap: 12 }}>
+            <ShieldCheck size={48} color="#FF5E00" />
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', textAlign: 'center' }}>
+              Rider Verification Required
+            </Text>
+            <Text style={{ fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 18, paddingHorizontal: 12 }}>
+              Fleet courier access is strictly provisioned and verified by the Belzo Hub Administrator. Your vehicle number and shift status must be activated from the Admin Portal.
+            </Text>
+            <TouchableOpacity
+              onPress={() => router.replace('/(customer)/home' as any)}
+              style={{
+                marginTop: 12,
+                backgroundColor: '#FF5E00',
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+                borderRadius: 16,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>
+                Return to Belzo Store
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.screen}>
       <ScrollView
         contentContainerStyle={[
           styles.container,
-          { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 32 },
+          { paddingTop: Math.max(insets.top, 24) + 12, paddingBottom: insets.bottom + 32 },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -257,23 +273,17 @@ export default function RiderDashboardScreen() {
               </Text>
               <View style={styles.fleetRatingBadge}>
                 <Star size={11} color="#D97706" fill="#D97706" />
-                <Text style={styles.fleetRatingText}>{rider?.rating || '4.95'}</Text>
+                <Text style={styles.fleetRatingText}>{rider?.rating || '5.0'}</Text>
               </View>
             </View>
 
             <Text style={styles.riderVehicleText}>
-              {rider?.vehicle_number || 'UP-71-AB-1234'} • {rider?.vehicle_type || 'Motorcycle'}
+              {rider?.vehicle_number
+                ? `${rider.vehicle_number} • ${rider.vehicle_type || 'Vehicle'}`
+                : 'Vehicle Pending Hub Admin Assignment'}
             </Text>
             <Text style={styles.riderHubText}>Joniha Central Hub • Active Courier</Text>
           </View>
-
-          <TouchableOpacity
-            onPress={() => setIsEditRiderModalOpen(true)}
-            style={styles.editRiderBtn}
-            activeOpacity={0.7}
-          >
-            <Edit2 size={16} color="#FF5E00" />
-          </TouchableOpacity>
         </View>
 
         {/* Duty Switch Card (Pure White Squircle) */}
@@ -322,7 +332,7 @@ export default function RiderDashboardScreen() {
             <View style={styles.metricIconBgEarnings}>
               <TrendingUp size={16} color="#047857" />
             </View>
-            <Text style={styles.metricValue}>₹{liveShiftMetrics.todayEarnings || shiftMetrics.todayEarnings || 1240}</Text>
+            <Text style={styles.metricValue}>₹{liveShiftMetrics.todayEarnings}</Text>
             <Text style={styles.metricLabel}>Earned Today</Text>
           </TouchableOpacity>
 
@@ -331,8 +341,8 @@ export default function RiderDashboardScreen() {
             <View style={styles.metricIconBgOrders}>
               <ShoppingBag size={16} color="#FF5E00" />
             </View>
-            <Text style={styles.metricValue}>{liveShiftMetrics.completedCount || shiftMetrics.completedCount || 9}</Text>
-            <Text style={styles.metricLabel}>Deliveries</Text>
+            <Text style={styles.metricValue}>{liveShiftMetrics.completedCount}</Text>
+            <Text style={styles.metricLabel}>Deliveries Today</Text>
           </View>
 
           {/* Rating Card */}
@@ -340,7 +350,7 @@ export default function RiderDashboardScreen() {
             <View style={styles.metricIconBgRating}>
               <Star size={16} color="#D97706" fill="#D97706" />
             </View>
-            <Text style={styles.metricValue}>{rider?.rating || shiftMetrics.rating || '4.95'}</Text>
+            <Text style={styles.metricValue}>{rider?.rating || '5.0'}</Text>
             <Text style={styles.metricLabel}>Fleet Rating</Text>
           </View>
         </View>
@@ -441,107 +451,6 @@ export default function RiderDashboardScreen() {
         order={incomingAlert}
         onAccept={() => router.push('/(rider)/active-order')}
       />
-
-      {/* Edit Rider Profile Modal */}
-      <Modal
-        visible={isEditRiderModalOpen}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsEditRiderModalOpen(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheetCard}>
-            <View style={styles.sheetHandle} />
-
-            <View style={styles.modalHeaderRow}>
-              <View style={styles.modalTitleGroup}>
-                <Bike size={20} color="#FF5E00" />
-                <Text style={styles.modalTitleText}>Edit Courier Profile</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setIsEditRiderModalOpen(false)}
-                style={styles.modalCloseBtn}
-              >
-                <X size={18} color="#8E8E93" />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.modalSubText}>
-              Update your courier identity and vehicle registration for Joniha Central Hub.
-            </Text>
-
-            <View style={styles.modalInputGroup}>
-              <Text style={styles.inputFieldLabel}>FULL NAME</Text>
-              <View style={styles.inputBox}>
-                <User size={16} color="#FF5E00" style={{ marginRight: 8 }} />
-                <TextInput
-                  style={styles.textInputField}
-                  value={editName}
-                  onChangeText={setEditName}
-                  placeholder="e.g. Vikram Singh"
-                  placeholderTextColor="#A0A0A5"
-                />
-              </View>
-            </View>
-
-            <View style={styles.modalInputGroup}>
-              <Text style={styles.inputFieldLabel}>VEHICLE NUMBER</Text>
-              <View style={styles.inputBox}>
-                <Bike size={16} color="#FF5E00" style={{ marginRight: 8 }} />
-                <TextInput
-                  style={styles.textInputField}
-                  value={editVehicleNumber}
-                  onChangeText={setEditVehicleNumber}
-                  placeholder="UP-71-AB-1234"
-                  placeholderTextColor="#A0A0A5"
-                  autoCapitalize="characters"
-                />
-              </View>
-            </View>
-
-            <View style={styles.modalInputGroup}>
-              <Text style={styles.inputFieldLabel}>VEHICLE TYPE</Text>
-              <View style={styles.vehicleTypeRow}>
-                {['Motorcycle', 'Scooter', 'EV Bike', 'Bicycle'].map((type) => (
-                  <TouchableOpacity
-                    key={type}
-                    onPress={() => setEditVehicleType(type)}
-                    style={[
-                      styles.vehicleTypeChip,
-                      editVehicleType === type && styles.vehicleTypeChipActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.vehicleTypeChipText,
-                        editVehicleType === type && styles.vehicleTypeChipTextActive,
-                      ]}
-                    >
-                      {type}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <TouchableOpacity
-              onPress={handleSaveRider}
-              disabled={isSavingRider}
-              style={[styles.saveRiderBtn, isSavingRider && { opacity: 0.7 }]}
-              activeOpacity={0.88}
-            >
-              {isSavingRider ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <View style={styles.btnRow}>
-                  <Check size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                  <Text style={styles.saveRiderBtnText}>Save Fleet Details</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }

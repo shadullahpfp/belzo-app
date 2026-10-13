@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import * as Linking from 'expo-linking';
-import { useOAuth } from '@clerk/clerk-expo';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
+import { useOAuth, useSSO } from '@clerk/clerk-expo';
 import Svg, { Path } from 'react-native-svg';
-import { Shield, Sparkles, Zap, Bike, User } from 'lucide-react-native';
-import { useAuth } from '../_layout';
+import { Shield, Sparkles, Zap, Bike } from 'lucide-react-native';
+
+// Handle external OAuth browser redirects
+WebBrowser.maybeCompleteAuthSession();
 
 function GoogleIcon({ size = 20 }: { size?: number }) {
   return (
@@ -42,27 +45,55 @@ function GoogleIcon({ size = 20 }: { size?: number }) {
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { setDemoRole } = useAuth();
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Warm up the browser on Android/iOS to eliminate initial load delay
+  useEffect(() => {
+    void WebBrowser.warmUpAsync();
+    return () => {
+      void WebBrowser.coolDownAsync();
+    };
+  }, []);
+
+  const { startSSOFlow } = useSSO();
   const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
 
-  const handleGoogleSignIn = React.useCallback(async () => {
+  const handleGoogleSignIn = useCallback(async () => {
     try {
       setLoading(true);
       setErrorMsg(null);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      try {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch {}
 
-      const redirectUrl = Linking.createURL('/(customer)/home', { scheme: 'belzo' });
-      const { createdSessionId, setActive } = await startOAuthFlow({
-        redirectUrl,
+      const redirectUrl = AuthSession.makeRedirectUri({
+        scheme: 'belzo',
+        path: 'sso-callback',
       });
 
-      if (createdSessionId) {
-        if (setActive) {
-          await setActive({ session: createdSessionId });
-        }
+      // Try startSSOFlow first (built-in null checks), fall back to startOAuthFlow if needed
+      let sessionId: string | null = null;
+      let activateFn: ((opts: { session: string }) => Promise<void>) | undefined = undefined;
+
+      try {
+        const ssoResult = await startSSOFlow({
+          strategy: 'oauth_google',
+          redirectUrl,
+        });
+        sessionId = ssoResult.createdSessionId;
+        activateFn = ssoResult.setActive;
+      } catch (ssoErr: any) {
+        console.warn('SSO Flow note, attempting direct OAuth flow:', ssoErr?.message || ssoErr);
+        const oauthResult = await startOAuthFlow({
+          redirectUrl,
+        });
+        sessionId = oauthResult.createdSessionId;
+        activateFn = oauthResult.setActive;
+      }
+
+      if (sessionId && activateFn) {
+        await activateFn({ session: sessionId });
         try {
           await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } catch {}
@@ -77,14 +108,7 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
-  }, [startOAuthFlow]);
-
-  const handleDemoSelect = async (role: 'customer' | 'rider', phone?: string) => {
-    try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    setDemoRole(role, phone);
-  };
+  }, [startSSOFlow, startOAuthFlow]);
 
   return (
     <View style={styles.container}>
@@ -168,36 +192,7 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <Text style={styles.legalNotice}>
-            By continuing, you agree to Belzo's Terms of Service & Privacy Policy. Safe and encrypted with Clerk.
-          </Text>
-        </View>
-
-        {/* Developer Demo Bypass Pills */}
-        <View style={styles.demoSection}>
-          <Text style={styles.demoSectionTitle}>
-            DEMO BYPASS: JONIHA RAPID TESTING
-          </Text>
-          <View style={styles.demoPillsRow}>
-            <TouchableOpacity
-              style={styles.demoPill}
-              onPress={() => handleDemoSelect('customer', '9876543210')}
-              activeOpacity={0.8}
-            >
-              <User size={13} color="#FF5E00" />
-              <Text style={styles.demoPillText}>Customer (Joniha)</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.demoPill}
-              onPress={() => handleDemoSelect('rider', '9999999999')}
-              activeOpacity={0.8}
-            >
-              <Bike size={13} color="#FF5E00" />
-              <Text style={styles.demoPillText}>Rider Console</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.demoHintText}>
-            Pre-configured dev credentials for instant reviewer pass.
+            By continuing, you agree to Belzo's Terms of Service &amp; Privacy Policy. Safe and encrypted with Clerk.
           </Text>
         </View>
       </ScrollView>
@@ -229,89 +224,96 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   logoImage: {
-    width: 80,
-    height: 80,
+    width: 72,
+    height: 72,
   },
   brandTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '900',
-    color: '#1C1C1E',
-    letterSpacing: -0.8,
-    marginBottom: 4,
+    color: '#111827',
+    letterSpacing: -0.5,
   },
   brandSubtitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FF5E00',
-    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6B7280',
+    marginTop: 4,
     marginBottom: 20,
+    textAlign: 'center',
   },
   featuresRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 12,
     marginBottom: 24,
+    width: '100%',
   },
   featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flex: 1,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: 'center',
     borderWidth: 0.5,
     borderColor: 'rgba(0, 0, 0, 0.06)',
-    gap: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 1,
   },
   featureIconBox: {
-    width: 20,
-    height: 20,
+    width: 32,
+    height: 32,
     borderRadius: 10,
-    backgroundColor: '#FFF4EB',
+    backgroundColor: '#FFF7ED',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 6,
   },
   featureText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    color: '#4B5563',
+    color: '#374151',
+    textAlign: 'center',
   },
   card: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 28,
+    borderRadius: 24,
     padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 24,
+    elevation: 4,
     borderWidth: 0.5,
     borderColor: 'rgba(0, 0, 0, 0.06)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 2,
-    marginBottom: 24,
   },
   badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: '#FFF4EB',
+    gap: 6,
+    backgroundColor: '#FFF7ED',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 10,
-    gap: 5,
+    borderRadius: 100,
+    alignSelf: 'flex-start',
     marginBottom: 12,
+    borderWidth: 0.5,
+    borderColor: '#FFEDD5',
   },
   badgeText: {
     fontSize: 10,
     fontWeight: '800',
     color: '#FF5E00',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
   cardTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
-    color: '#1C1C1E',
+    color: '#111827',
     letterSpacing: -0.4,
     marginBottom: 6,
   },
@@ -326,26 +328,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FECACA',
     borderRadius: 12,
-    padding: 10,
+    padding: 12,
     marginBottom: 16,
   },
   errorText: {
     fontSize: 12,
     color: '#DC2626',
-    fontWeight: '600',
-    textAlign: 'center',
+    fontWeight: '500',
+    lineHeight: 16,
   },
   googleButton: {
+    width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
-    paddingVertical: 15,
+    borderRadius: 16,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
   },
@@ -368,48 +371,5 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginTop: 18,
     paddingHorizontal: 8,
-  },
-  demoSection: {
-    width: '100%',
-    alignItems: 'center',
-    paddingTop: 8,
-  },
-  demoSectionTitle: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#8E8E93',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-  },
-  demoPillsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 6,
-  },
-  demoPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    gap: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  demoPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#374151',
-  },
-  demoHintText: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    textAlign: 'center',
   },
 });

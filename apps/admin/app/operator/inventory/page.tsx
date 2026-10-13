@@ -15,6 +15,7 @@ import {
   Tag,
   DollarSign,
   TrendingDown,
+  AlertCircle,
 } from 'lucide-react';
 import { supabase, JONIHA_HUB_ID } from '../../../lib/supabase';
 import { ImageUploader } from '../../../components/ImageUploader';
@@ -82,16 +83,23 @@ export default function InventoryPricingPage() {
     }, 2800);
   };
 
-  // 1. Fetch live categories & products from Supabase (Zero-Cache, Full-Catalog)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // 1. Fetch live categories & products from Supabase (Zero-Cache, Full-Catalog, Resilient Query)
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
+      setErrorMessage(null);
 
       // Fetch all active/existing Categories
-      const { data: catsData } = await supabase
+      const { data: catsData, error: catsErr } = await supabase
         .from('categories')
         .select('id, name, slug')
         .order('sort_order', { ascending: true });
+
+      if (catsErr) {
+        console.warn('[Operator Inventory] Categories query notice:', catsErr.message);
+      }
 
       const cats: CategoryOption[] = catsData || [];
       setCategoriesList(cats);
@@ -99,7 +107,7 @@ export default function InventoryPricingPage() {
         setNewCatId(cats[0].id);
       }
 
-      // Helper to resolve category display name
+      // Helper to resolve category display name without join dependency
       const resolveCategoryName = (p: any): string => {
         if (p.categories?.name) return p.categories.name;
         if (p.category_id) {
@@ -107,35 +115,44 @@ export default function InventoryPricingPage() {
             (c) => c.id === p.category_id || c.slug === p.category_id
           );
           if (matched) return matched.name;
-          if (p.category_id.includes('produce')) return 'Fruits & Vegetables';
-          if (p.category_id.includes('grocery')) return 'Grocery';
-          if (p.category_id.includes('food')) return 'Food & Restaurant';
-          if (p.category_id.includes('pharma')) return 'Medicine';
-          if (p.category_id.includes('fashion')) return 'Fashion';
-          if (p.category_id.includes('electronics')) return 'Electronics';
+          const cid = String(p.category_id).toLowerCase();
+          if (cid.includes('produce') || cid.includes('sabzi')) return 'Fruits & Vegetables';
+          if (cid.includes('grocery') || cid.includes('kirana')) return 'Grocery';
+          if (cid.includes('food') || cid.includes('meals')) return 'Food & Restaurant';
+          if (cid.includes('pharma') || cid.includes('medicine')) return 'Medicine';
+          if (cid.includes('fashion')) return 'Fashion';
+          if (cid.includes('electronics')) return 'Electronics';
         }
         return 'General';
       };
 
-      // Fetch Products for Joniha Hub
+      // Resilient Product Query: select('*') prevents PostgREST relationship join errors
       let { data: prodsData, error: prodsErr } = await supabase
         .from('products')
-        .select('*, categories (id, name, slug)')
+        .select('*')
         .eq('store_id', JONIHA_HUB_ID)
         .order('name', { ascending: true });
 
-      // Fallback: If store_id query returned nothing or errored, fetch all products
+      // Fallback: If store_id query returned nothing or errored, fetch all products across store
       if (prodsErr || !prodsData || prodsData.length === 0) {
-        const { data: fallbackData } = await supabase
+        const { data: fallbackData, error: fallbackErr } = await supabase
           .from('products')
-          .select('*, categories (id, name, slug)')
+          .select('*')
           .order('name', { ascending: true });
+
         if (fallbackData && fallbackData.length > 0) {
           prodsData = fallbackData;
+          prodsErr = null;
+        } else if (fallbackErr) {
+          prodsErr = fallbackErr;
         }
       }
 
-      if (prodsData) {
+      if (prodsErr) {
+        setErrorMessage(prodsErr.message || 'Failed to retrieve products from Supabase');
+      }
+
+      if (prodsData && prodsData.length > 0) {
         const mapped: InventoryItem[] = prodsData.map((p: any) => ({
           id: p.id,
           name: p.name,
@@ -146,7 +163,7 @@ export default function InventoryPricingPage() {
           price: Number(p.price) || 0,
           discount_price: p.discount_price ? Number(p.discount_price) : undefined,
           mrp: Number(p.price) ? Math.round(Number(p.price) * 1.2) : 0,
-          stock: Number(p.stock_quantity) || 0,
+          stock: Number(p.stock_quantity ?? p.stock ?? 0),
           is_available: p.is_available ?? true,
           image:
             p.image_url ||
@@ -158,8 +175,9 @@ export default function InventoryPricingPage() {
       } else {
         setItems([]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[Operator Inventory] Error fetching products:', err);
+      setErrorMessage(err?.message || 'Unexpected network error fetching catalog');
       setItems([]);
     } finally {
       setLoading(false);
@@ -469,6 +487,25 @@ export default function InventoryPricingPage() {
         </div>
       </div>
 
+      {/* Informative Error Banner if Supabase query encounters issues */}
+      {errorMessage && (
+        <div className="bg-red-50 border border-red-200 rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-red-700 animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+            <div>
+              <p className="font-bold">Catalog Sync Notice</p>
+              <p className="text-red-600 mt-0.5">{errorMessage}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => loadData()}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold text-xs shrink-0 transition-all cursor-pointer shadow-sm"
+          >
+            Retry Database Sync
+          </button>
+        </div>
+      )}
+
       {/* Inventory Table Container */}
       <div className="bg-white border border-black/5 rounded-3xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
         <div className="overflow-x-auto">
@@ -534,6 +571,7 @@ export default function InventoryPricingPage() {
                             value={editPrice}
                             placeholder="Price"
                             onChange={(e) => setEditPrice(e.target.value)}
+                            onBlur={() => saveEditing(item.id)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') saveEditing(item.id);
                               if (e.key === 'Escape') setEditingId(null);
@@ -546,6 +584,7 @@ export default function InventoryPricingPage() {
                             value={editDiscountPrice}
                             placeholder="Discount ₹"
                             onChange={(e) => setEditDiscountPrice(e.target.value)}
+                            onBlur={() => saveEditing(item.id)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') saveEditing(item.id);
                               if (e.key === 'Escape') setEditingId(null);
