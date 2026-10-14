@@ -17,32 +17,7 @@ WebBrowser.maybeCompleteAuthSession();
 // Suppress development warning overlays and yellow badges during evaluation/demos
 LogBox.ignoreAllLogs(true);
 
-const tokenCache = {
-  async getToken(key: string) {
-    try {
-      const item = await SecureStore.getItemAsync(key);
-      return item;
-    } catch (error) {
-      console.error('SecureStore get item error: ', error);
-      await SecureStore.deleteItemAsync(key);
-      return null;
-    }
-  },
-  async saveToken(key: string, value: string) {
-    try {
-      return SecureStore.setItemAsync(key, value);
-    } catch (err) {
-      return;
-    }
-  },
-  async clearToken(key: string) {
-    try {
-      await SecureStore.deleteItemAsync(key);
-    } catch (err) {
-      return;
-    }
-  },
-};
+import { tokenCache } from '../lib/tokenCache';
 
 interface AuthContextType {
   session: Session | null;
@@ -127,11 +102,12 @@ function AppNavigation() {
     const inAuthGroup = segments[0] === '(auth)';
     const inCustomerGroup = segments[0] === '(customer)';
     const inRiderGroup = segments[0] === '(rider)';
+    const inSSOCallback = (segments[0] as string) === 'sso-callback';
 
     const hasAuth = (isSignedIn && !!clerkUser) || (!!role && !!user);
 
     if (!hasAuth) {
-      if (!inAuthGroup) {
+      if (!inAuthGroup && !inSSOCallback) {
         router.replace('/(auth)/login');
       }
     } else {

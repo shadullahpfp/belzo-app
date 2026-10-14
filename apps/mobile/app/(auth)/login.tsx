@@ -7,13 +7,12 @@ import {
   ActivityIndicator,
   Image,
   ScrollView,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
-import * as AuthSession from 'expo-auth-session';
-import { useOAuth, useSSO } from '@clerk/clerk-expo';
+import * as Linking from 'expo-linking';
+import { useOAuth } from '@clerk/clerk-expo';
 import Svg, { Path } from 'react-native-svg';
 import { Shield, Sparkles, Zap, Bike } from 'lucide-react-native';
 
@@ -56,7 +55,6 @@ export default function LoginScreen() {
     };
   }, []);
 
-  const { startSSOFlow } = useSSO();
   const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
 
   const handleGoogleSignIn = useCallback(async () => {
@@ -67,48 +65,27 @@ export default function LoginScreen() {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch {}
 
-      const redirectUrl = AuthSession.makeRedirectUri({
-        scheme: 'belzo',
-        path: 'sso-callback',
-      });
+      const redirectUrl = Linking.createURL('sso-callback', { scheme: 'belzo' });
+      const oAuthResult = await startOAuthFlow({ redirectUrl });
 
-      // Try startSSOFlow first (built-in null checks), fall back to startOAuthFlow if needed
-      let sessionId: string | null = null;
-      let activateFn: ((opts: { session: string }) => Promise<void>) | undefined = undefined;
-
-      try {
-        const ssoResult = await startSSOFlow({
-          strategy: 'oauth_google',
-          redirectUrl,
-        });
-        sessionId = ssoResult.createdSessionId;
-        activateFn = ssoResult.setActive;
-      } catch (ssoErr: any) {
-        console.warn('SSO Flow note, attempting direct OAuth flow:', ssoErr?.message || ssoErr);
-        const oauthResult = await startOAuthFlow({
-          redirectUrl,
-        });
-        sessionId = oauthResult.createdSessionId;
-        activateFn = oauthResult.setActive;
-      }
-
-      if (sessionId && activateFn) {
-        await activateFn({ session: sessionId });
+      if (oAuthResult?.createdSessionId && oAuthResult?.setActive) {
+        await oAuthResult.setActive({ session: oAuthResult.createdSessionId });
         try {
           await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } catch {}
       }
     } catch (err: any) {
-      console.warn('Google OAuth error:', err);
-      const msg =
-        err?.errors?.[0]?.message ||
-        err?.message ||
-        'Google Sign-In was cancelled or failed. Please try again.';
-      setErrorMsg(msg);
+      console.error('OAuth Execution Error:', err);
+      const rawMsg = err?.errors?.[0]?.message || err?.message || String(err || '');
+      if (rawMsg.includes('toString') || rawMsg.includes('null')) {
+        setErrorMsg('Login session was cancelled or timed out. Please tap Continue with Google again.');
+      } else {
+        setErrorMsg(rawMsg || 'Unable to sign in with Google');
+      }
     } finally {
       setLoading(false);
     }
-  }, [startSSOFlow, startOAuthFlow]);
+  }, [startOAuthFlow]);
 
   return (
     <View style={styles.container}>
