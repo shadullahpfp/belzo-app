@@ -343,9 +343,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       ...(currentRider || {
         id: riderId,
         vehicle_type: 'Motorcycle',
-        vehicle_number: 'UP-71-AB-1234',
+        vehicle_number: '',
         is_online: true,
-        rating: 4.95,
+        rating: 5.0,
       }),
       ...updates,
     };
@@ -391,8 +391,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isLoading: false,
     });
 
-    // Demo accounts: skip Supabase DB read/write — demo IDs don't exist in auth.users
-    // and foreign key constraint would cause an unhandled exception (error boundary popup).
     set({
       profile: {
         id: demoId,
@@ -400,11 +398,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         full_name: null,
         role: newRole,
         is_active: true,
-        default_address: {
-          city: 'Bindki',
-          area: 'Joniha Chauraha',
-          address: 'Ward No. 4, Shahbajpur, Joniha, Bindki (212635)',
-        },
+        default_address: null,
       },
       isProfileSheetOpen: newRole === 'customer',
     });
@@ -413,10 +407,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         rider: {
           id: demoId,
           vehicle_type: 'Motorcycle',
-          vehicle_number: 'UP-71-AB-1234',
+          vehicle_number: '',
           is_online: true,
-          rating: 4.95,
-          total_deliveries: 18,
+          rating: 5.0,
+          total_deliveries: 0,
         },
       });
     }

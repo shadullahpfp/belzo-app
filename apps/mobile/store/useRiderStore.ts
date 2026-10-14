@@ -65,74 +65,22 @@ interface RiderState {
   toggleItemCheck: (index: number) => void;
   confirmPickup: (orderId: string) => Promise<void>;
   verifyPinAndDeliver: (orderId: string, inputPin: string) => Promise<boolean>;
-  triggerDemoBroadcast: () => void;
 }
-
-const DEMO_BROADCAST_ORDER: RiderOrder = {
-  id: 'ord-live-7721',
-  short_code: 'BLZ-7721',
-  status: 'ready_for_pickup',
-  store_name: 'Belzo Joniha Central Hub 01',
-  store_address: 'Joniha Chauraha, Bindki Road, Fatehpur (212635)',
-  store_phone: '+91 98765 00001',
-  store_latitude: 26.0350,
-  store_longitude: 80.4650,
-  customer_name: 'Valued Customer',
-  customer_phone: '+91 98765 11223',
-  customer_address: 'Ward No. 4, Shahbajpur, Joniha, Bindki',
-  customer_latitude: 26.0365,
-  customer_longitude: 80.4672,
-  delivery_notes: 'Ring the doorbell twice. Please leave at doorstep if unattended.',
-  delivery_pin: '4421',
-  payout: 65,
-  distance_to_store: '0.8 km',
-  distance_to_customer: '1.4 km',
-  items: [
-    { name: 'Farm Fresh Whole Milk', unit: '1 Litre Pouch', quantity: 2, checked: false },
-    { name: 'Artisan Sourdough Loaf', unit: '400g Pack', quantity: 1, checked: false },
-    { name: 'Belzo Sparkling Cold Brew Coffee', unit: '250ml Can', quantity: 1, checked: false }
-  ]
-};
 
 export const useRiderStore = create<RiderState>((set, get) => ({
   isOnline: true,
   currentOrder: null,
   incomingAlert: null,
   shiftMetrics: {
-    todayEarnings: 1240,
-    completedCount: 9,
-    rating: 4.95,
-    totalDistanceKm: 28.4,
-    basePay: 940,
-    surgePay: 220,
-    tips: 80
+    todayEarnings: 0,
+    completedCount: 0,
+    rating: 5.0,
+    totalDistanceKm: 0,
+    basePay: 0,
+    surgePay: 0,
+    tips: 0,
   },
-  completedOrders: [
-    {
-      id: 'ord-comp-01',
-      short_code: 'BLZ-9021',
-      completed_at: '16:45 PM',
-      payout: 75,
-      distance: '3.1 km',
-      customer_name: 'Rohan Mehra'
-    },
-    {
-      id: 'ord-comp-02',
-      short_code: 'BLZ-9018',
-      completed_at: '15:20 PM',
-      payout: 60,
-      distance: '2.2 km',
-      customer_name: 'Kavita Sundaram'
-    },
-    {
-      id: 'ord-comp-03',
-      short_code: 'BLZ-9004',
-      completed_at: '14:10 PM',
-      payout: 85,
-      distance: '4.0 km',
-      customer_name: 'Arjun Nambiar'
-    }
-  ],
+  completedOrders: [],
 
   toggleDutyStatus: async (online?: boolean) => {
     const current = get().isOnline;
@@ -151,9 +99,6 @@ export const useRiderStore = create<RiderState>((set, get) => ({
       if (userId) {
         await supabase.from('riders').update({ is_online: nextState }).eq('id', userId);
         await supabase.from('profiles').update({ is_active: nextState }).eq('id', userId);
-      } else {
-        // Fallback for demo bypass
-        await supabase.from('riders').update({ is_online: nextState }).limit(1);
       }
     } catch {
       // Local optimistic update
@@ -312,11 +257,4 @@ export const useRiderStore = create<RiderState>((set, get) => ({
 
     return true;
   },
-
-  triggerDemoBroadcast: () => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    } catch {}
-    set({ incomingAlert: { ...DEMO_BROADCAST_ORDER, id: `ord-${Date.now()}` } });
-  }
 }));

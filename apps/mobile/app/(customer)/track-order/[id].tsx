@@ -292,22 +292,6 @@ export default function TrackOrderScreen() {
     Linking.openURL(`tel:${order.rider_phone}`);
   };
 
-  // Dev state cycler for demo testing
-  const handleCycleStatus = () => {
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
-
-    const stages: OrderStatus[] = ['placed', 'ready_for_pickup', 'out_for_delivery', 'delivered'];
-    const nextIdx = (stages.indexOf(order.status) + 1) % stages.length;
-    const nextStatus = stages[nextIdx];
-    setOrder((prev) => ({ ...prev, status: nextStatus }));
-
-    if (nextStatus === 'delivered') {
-      setShowRatingModal(true);
-    }
-  };
-
   const getStatusText = () => {
     switch (order.status) {
       case 'placed':
@@ -767,22 +751,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#15803D',
     letterSpacing: 0.6,
-  },
-  demoCycleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FFF7ED',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 0.5,
-    borderColor: '#FFEDD5',
-  },
-  demoCycleBtnText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#C2410C',
   },
   routeGraphicContainer: {
     height: 52,

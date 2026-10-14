@@ -90,13 +90,13 @@ export default function CheckoutScreen() {
         }
 
         const addressPayload = selectedAddress || profile?.default_address || {
-          house_flat_no: 'Ward No. 4',
-          apartment_road_area: 'Shahbajpur, Joniha, Bindki',
+          house_flat_no: '',
+          apartment_road_area: 'Joniha, Bindki',
           city: 'Fatehpur',
           postal_code: '212635',
-          recipient_name: profile?.full_name || 'Rahul Sharma',
-          recipient_phone: profile?.phone || '+91 98765 43210',
-          landmark: 'Near Joniha Central Hub',
+          recipient_name: profile?.full_name || 'Customer',
+          recipient_phone: profile?.phone || '',
+          landmark: '',
         };
 
         const { data: orderData, error: orderError } = await supabase

@@ -45,7 +45,6 @@ export default function RiderDashboardScreen() {
     incomingAlert,
     setIncomingAlert,
     shiftMetrics,
-    triggerDemoBroadcast,
   } = useRiderStore();
 
   const [radarAnim] = useState(new Animated.Value(0.4));
@@ -112,7 +111,7 @@ export default function RiderDashboardScreen() {
               await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             } catch {}
 
-            let custAddr = 'Ward No. 4, Shahbajpur, Joniha, Bindki';
+            let custAddr = 'Joniha, Bindki';
             if (newRow.delivery_address) {
               if (typeof newRow.delivery_address === 'string') {
                 try {
